@@ -7,7 +7,7 @@ from pathlib import Path
 
 from analyzer import analyze
 from fetcher import fetch_all
-from reporter import assemble_report, build_payload, call_claude, write_report
+from reporter import assemble_report, build_payload, call_claude, write_excel_report, write_report
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -55,8 +55,10 @@ def main(argv: list[str] | None = None) -> int:
         return 3
 
     report = assemble_report(stats, analysis)
-    path = write_report(report, args.reports_dir)
-    print(f"Report written: {path}")
+    md_path   = write_report(report, args.reports_dir)
+    xlsx_path = write_excel_report(stats, analysis, args.reports_dir)
+    print(f"Report written: {md_path}")
+    print(f"Report written: {xlsx_path}")
     return 0
 
 
