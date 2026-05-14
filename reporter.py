@@ -81,7 +81,8 @@ def _fmt_pct_plain(val) -> str:
 # ── Claude payload ────────────────────────────────────────────────────────────
 
 def _build_payload(stats: dict, fin_data: dict, news: list | None = None,
-                   dcf_result: dict | None = None) -> str:
+                   dcf_result: dict | None = None,
+                   competitive: dict | None = None) -> str:
     info = stats["info"]
 
     payload: dict = {
@@ -151,6 +152,36 @@ def _build_payload(stats: dict, fin_data: dict, news: list | None = None,
         }
         if dcf_result.get("warnings"):
             payload["dcf"]["warn"] = dcf_result["warnings"][0]
+
+    if competitive and not competitive.get("error"):
+        tgt   = competitive["target"]
+        peers = competitive["peers"]
+        med   = competitive["peer_medians"]
+        ranks = competitive["rankings"]
+        payload["comp"] = {
+            "tgt": {
+                "gm":  tgt.get("gross_margin"),
+                "om":  tgt.get("op_margin"),
+                "roe": tgt.get("roe"),
+                "gr":  tgt.get("rev_growth"),
+                "fpe": tgt.get("fpe"),
+            },
+            "peers": [
+                {"t": p["ticker"], "gm": p.get("gross_margin"), "om": p.get("op_margin"),
+                 "roe": p.get("roe"), "gr": p.get("rev_growth"), "fpe": p.get("fpe")}
+                for p in peers
+            ],
+            "med": {
+                "gm":  med.get("gross_margin"),
+                "om":  med.get("op_margin"),
+                "roe": med.get("roe"),
+                "gr":  med.get("rev_growth"),
+                "fpe": med.get("fpe"),
+            },
+            "ranks": {k: ranks[k] for k in ("rev_growth", "gross_margin", "op_margin", "roe", "fpe")
+                      if k in ranks},
+            "src": competitive.get("source"),
+        }
 
     payload_json = json.dumps(payload, separators=(",", ":"))
     return payload_json
@@ -368,13 +399,75 @@ def _research_md_sections(research: dict) -> str:
     return "\n".join(parts)
 
 
+# ── Competitive analysis markdown ─────────────────────────────────────────────
+
+def _competitive_md_section(comp_result: dict, comp_assessment: dict | None) -> str:
+    if comp_result.get("error"):
+        return "---\n\n## Competitive Analysis\n\n*Competitive data unavailable.*\n"
+
+    target  = comp_result.get("target", {})
+    peers   = comp_result.get("peers", [])
+    medians = comp_result.get("peer_medians", {})
+    ca      = comp_assessment or {}
+
+    moat_type = ca.get("moat_type", "N/A")
+    moat_str  = ca.get("moat_strength", "N/A")
+    position  = ca.get("position", "N/A")
+    key_risk  = ca.get("key_risk", "N/A")
+    assessment = ca.get("assessment", "")
+
+    def _fp(v):
+        return "N/A" if v is None else f"{v:.1f}%"
+
+    def _fpe(v):
+        return "N/A" if v is None else f"{v:.1f}x"
+
+    lines = [
+        "---", "",
+        "## Competitive Analysis", "",
+        f"**Competitive Position:** {position}  |  **Moat:** {moat_type} ({moat_str})",
+        f"**Key Competitive Risk:** {key_risk}",
+        "",
+        "### Peer Comparison",
+        "",
+        "| Company | Ticker | Rev Growth | Gross Margin | Op Margin | ROE | D/E | Fwd P/E |",
+        "|---|---|---|---|---|---|---|---|",
+        # Target row (bold)
+        f"| **{target.get('name','')}** | **{target.get('ticker','')}** "
+        f"| **{_fp(target.get('rev_growth'))}** | **{_fp(target.get('gross_margin'))}** "
+        f"| **{_fp(target.get('op_margin'))}** | **{_fp(target.get('roe'))}** "
+        f"| **{_fp(target.get('de'))}** | **{_fpe(target.get('fpe'))}** |",
+    ]
+
+    for p in sorted(peers, key=lambda x: x.get("mktcap") or 0, reverse=True):
+        lines.append(
+            f"| {p.get('name','')} | {p.get('ticker','')} "
+            f"| {_fp(p.get('rev_growth'))} | {_fp(p.get('gross_margin'))} "
+            f"| {_fp(p.get('op_margin'))} | {_fp(p.get('roe'))} "
+            f"| {_fp(p.get('de'))} | {_fpe(p.get('fpe'))} |"
+        )
+
+    lines.append(
+        f"| *Peer Median* | — "
+        f"| *{_fp(medians.get('rev_growth'))}* | *{_fp(medians.get('gross_margin'))}* "
+        f"| *{_fp(medians.get('op_margin'))}* | *{_fp(medians.get('roe'))}* "
+        f"| — | *{_fpe(medians.get('fpe'))}* |"
+    )
+    lines.append("")
+
+    if assessment:
+        lines += ["### Competitive Assessment", "", assessment, ""]
+
+    return "\n".join(lines)
+
+
 # ── Main entry point ──────────────────────────────────────────────────────────
 
 def build_report(ticker: str, stats: dict, fin_data: dict,
                  news: list | None = None, dcf_result: dict | None = None,
-                 research: dict | None = None,
-                 dry_run: bool = False) -> tuple[str, dict | None]:
-    payload_json = _build_payload(stats, fin_data, news, dcf_result)
+                 research: dict | None = None, competitive: dict | None = None,
+                 dry_run: bool = False) -> tuple[str, dict | None, dict | None]:
+    payload_json = _build_payload(stats, fin_data, news, dcf_result, competitive)
 
     if dry_run:
         print("=== DRY RUN: Claude payload ===")
@@ -385,14 +478,14 @@ def build_report(ticker: str, stats: dict, fin_data: dict,
             "*Dry run — Claude call skipped.*\n\n"
             f"```json\n{payload_json}\n```\n"
         )
-        return md, None
+        return md, None, None
 
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
         print("Error: ANTHROPIC_API_KEY environment variable not set.", file=sys.stderr)
         sys.exit(1)
 
-    # DCF instruction appended to both prompt branches
+    # DCF instruction
     if dcf_result and not dcf_result.get("error"):
         dcf_inst = (
             "\n\n## DCF Valuation: use the dcf key. Quote intrinsic value, WACC, "
@@ -402,17 +495,35 @@ def build_report(ticker: str, stats: dict, fin_data: dict,
     else:
         dcf_inst = "\n\n## DCF Valuation: Model unavailable — note in one sentence."
 
+    # Competitive instruction (appended to both prompt branches when comp data available)
+    has_comp = competitive and not competitive.get("error")
+    comp_inst = (
+        "\n\nFor the comp JSON field: moat_type (Cost Advantage/Switching Costs/Network Effects/"
+        "Intangible Assets/Efficient Scale/None), moat_strength (Wide/Narrow/None — one sentence "
+        "justification citing specific margin or growth differential vs peers), "
+        "position (Leader/Challenger/Follower/Niche), "
+        "key_risk (name a specific competitor + threat in next 24 months), "
+        "assessment (3-4 sentence institutional paragraph on competitive dynamics and "
+        "what the peer comparison implies for the investment case)."
+    ) if has_comp else ""
+
     if news:
+        comp_json_field = (
+            ',"comp":{"moat_type":"Switching Costs","moat_strength":"Wide — one sentence.",'
+            '"position":"Leader","key_risk":"Specific named threat in 24 months.",'
+            '"assessment":"3-4 sentence paragraph."}'
+        ) if has_comp else ""
+
         json_schema = (
             '{"sent":[{"i":0,"s":"Positive","imp":"Major","type":"Earnings",'
             '"note":"One sentence: specific investment implication of this headline."}],'
             '"overall":"Bullish","score":8.1,"momentum":"Improving",'
             '"themes":["Theme A","Theme B","Theme C"],'
             '"catalyst":"One sentence: key near-term catalyst to watch.",'
-            '"summary":"2-3 sentence IB-grade synthesis of the news flow and its implications."}'
+            f'"summary":"2-3 sentence IB-grade synthesis of the news flow and its implications."{comp_json_field}}}'
         )
         user_content = (
-            f"First, output the news sentiment JSON block below (output it first, before anything else).\n\n"
+            f"First, output the JSON block below (before anything else).\n\n"
             f"```json\n{json_schema}\n```\n\n"
             f"Then analyze this stock using exactly these section headers:\n"
             f"{ANALYSIS_STRUCTURE}\n\n"
@@ -421,14 +532,25 @@ def build_report(ticker: str, stats: dict, fin_data: dict,
             f"`type`: Earnings/Product/Regulatory/Macro/Technical/M&A/Management/Analyst/Other. "
             f"`momentum`: Improving/Stable/Deteriorating. "
             f"Write `note` and `summary` as a senior equity analyst: specific, data-referenced, actionable."
-            f"{dcf_inst}"
+            f"{dcf_inst}{comp_inst}"
         )
     else:
+        comp_schema_prefix = ""
+        if has_comp:
+            comp_schema_prefix = (
+                'First, output this JSON block before all analysis sections:\n\n'
+                '```json\n'
+                '{"comp":{"moat_type":"Switching Costs","moat_strength":"Wide — one sentence.",'
+                '"position":"Leader","key_risk":"Specific named threat in 24 months.",'
+                '"assessment":"3-4 sentence paragraph."}}\n'
+                '```\n\n'
+            )
         user_content = (
+            f"{comp_schema_prefix}"
             f"Analyze this stock. Use exactly these section headers:\n"
             f"{ANALYSIS_STRUCTURE}\n\n"
             f"Data: {payload_json}"
-            f"{dcf_inst}"
+            f"{dcf_inst}{comp_inst}"
         )
 
     client = anthropic.Anthropic(api_key=api_key)
@@ -440,16 +562,17 @@ def build_report(ticker: str, stats: dict, fin_data: dict,
     )
     analysis = message.content[0].text.strip()
 
-    # Parse sentiment JSON Claude appended, then strip it from the visible analysis
-    sent_data: dict | None = None
-    if news:
-        articles_with_sent = [{**a, "sentiment": "Neutral", "impact": "Moderate",
-                                "type": "Other", "note": ""} for a in news]
-        overall, score, momentum, themes, catalyst, summary = "Neutral", None, "Stable", [], "", ""
-        m = re.search(r'```json\s*(\{[^`]+\})\s*```', analysis)
-        if m:
-            try:
-                raw     = json.loads(m.group(1))
+    # Parse JSON block from Claude's response (contains sentiment and/or comp assessment)
+    sent_data:       dict | None = None
+    comp_assessment: dict | None = None
+
+    m = re.search(r'```json\s*(\{[\s\S]+?\})\s*```', analysis)
+    if m:
+        try:
+            raw = json.loads(m.group(1))
+            comp_assessment = raw.get("comp") or None
+
+            if news and "sent" in raw:
                 idx_map = {item["i"]: item for item in raw.get("sent", [])}
                 articles_with_sent = [
                     {**a,
@@ -459,32 +582,53 @@ def build_report(ticker: str, stats: dict, fin_data: dict,
                      "note":      idx_map.get(i, {}).get("note", "")}
                     for i, a in enumerate(news)
                 ]
-                overall  = raw.get("overall", "Neutral")
-                score    = raw.get("score")
-                momentum = raw.get("momentum", "Stable")
-                themes   = raw.get("themes", [])
-                catalyst = raw.get("catalyst", "")
-                summary  = raw.get("summary", "")
-                # Strip the JSON block wherever it appears
-                before = analysis[:m.start()].strip()
-                after  = analysis[m.end():].strip()
-                analysis = (before + "\n\n" + after).strip() if before else after
-            except (json.JSONDecodeError, KeyError, TypeError):
-                pass
+                sent_data = {
+                    "articles": articles_with_sent,
+                    "overall":  raw.get("overall", "Neutral"),
+                    "score":    raw.get("score"),
+                    "momentum": raw.get("momentum", "Stable"),
+                    "themes":   raw.get("themes", []),
+                    "catalyst": raw.get("catalyst", ""),
+                    "summary":  raw.get("summary", ""),
+                }
+            elif news:
+                sent_data = {
+                    "articles": [{**a, "sentiment": "Neutral", "impact": "Moderate",
+                                  "type": "Other", "note": ""} for a in news],
+                    "overall": "Neutral", "score": None, "momentum": "Stable",
+                    "themes": [], "catalyst": "", "summary": "",
+                }
+
+            # Strip the JSON block from the visible analysis text
+            before = analysis[:m.start()].strip()
+            after  = analysis[m.end():].strip()
+            analysis = (before + "\n\n" + after).strip() if before else after
+        except (json.JSONDecodeError, KeyError, TypeError):
+            if news:
+                sent_data = {
+                    "articles": [{**a, "sentiment": "Neutral", "impact": "Moderate",
+                                  "type": "Other", "note": ""} for a in news],
+                    "overall": "Neutral", "score": None, "momentum": "Stable",
+                    "themes": [], "catalyst": "", "summary": "",
+                }
+    elif news:
         sent_data = {
-            "articles": articles_with_sent,
-            "overall": overall, "score": score, "momentum": momentum,
-            "themes": themes, "catalyst": catalyst, "summary": summary,
+            "articles": [{**a, "sentiment": "Neutral", "impact": "Moderate",
+                          "type": "Other", "note": ""} for a in news],
+            "overall": "Neutral", "score": None, "momentum": "Stable",
+            "themes": [], "catalyst": "", "summary": "",
         }
 
-    news_section    = _news_md_section(sent_data) + "\n" if sent_data else ""
-    fin_tables      = _financial_statements_md(fin_data)
-    research_md     = "\n" + _research_md_sections(research) if research else ""
+    news_section  = _news_md_section(sent_data) + "\n" if sent_data else ""
+    fin_tables    = _financial_statements_md(fin_data)
+    research_md   = "\n" + _research_md_sections(research) if research else ""
+    comp_md       = "\n" + _competitive_md_section(competitive, comp_assessment) if competitive else ""
     markdown = (
         f"# {ticker} Stock Analysis — {date.today()}\n\n"
         f"{analysis}\n\n"
         f"{news_section}"
         f"{fin_tables}"
         f"{research_md}"
+        f"{comp_md}"
     )
-    return markdown, sent_data
+    return markdown, sent_data, comp_assessment

@@ -5,7 +5,7 @@ import re
 from datetime import date as _date_type
 
 import openpyxl
-from openpyxl.chart import LineChart, Reference
+from openpyxl.chart import BarChart, LineChart, Reference
 from openpyxl.chart.legend import Legend
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
@@ -1365,11 +1365,302 @@ def _build_dcf_sheet(wb, dcf_result: dict | None, ticker: str) -> None:
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
+def _build_competitive_sheet(wb, comp_result: dict | None) -> None:
+    if not comp_result:
+        return
+
+    ws = wb.create_sheet("Competitive Analysis")
+    N  = 10   # columns A–J
+
+    if comp_result.get("error"):
+        _fin_title(ws, 1, "COMPETITIVE ANALYSIS", N)
+        ws.merge_cells(f"A3:{get_column_letter(N)}3")
+        c       = ws.cell(row=3, column=1)
+        c.value = f"Data unavailable: {comp_result['error']}"
+        c.font  = _f(10, color="999999")
+        return
+
+    target  = comp_result["target"]
+    peers   = comp_result["peers"]
+    medians = comp_result["peer_medians"]
+    ranks   = comp_result["rankings"]
+    claude  = comp_result.get("claude") or {}
+    ticker  = target["ticker"]
+
+    # ── Title ────────────────────────────────────────────────────────────────
+    _fin_title(ws, 1, f"COMPETITIVE ANALYSIS  —  {ticker}", N)
+
+    src_label = comp_result.get("source", "").title()
+    sub_text  = f"Peer universe: {src_label}  ·  {len(peers)} comparable companies identified"
+    ws.merge_cells(f"A2:{get_column_letter(N)}2")
+    sub           = ws["A2"]
+    sub.value     = sub_text
+    sub.font      = _f(9, color="5A6B7B")
+    sub.fill      = _fill(_SUBTITLE)
+    sub.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[2].height = 16
+
+    row = 4   # row 3 is a blank spacer
+
+    # ── Section 1: Competitive Positioning Summary ────────────────────────────
+    _fin_subhdr(ws, row, "COMPETITIVE POSITIONING SUMMARY", N)
+    row += 1
+
+    def _kv(r, key, val, alt=False, navy=False, red=False):
+        bg_k = _NAVY if navy else (_RED_BG if red else (_LBL_ALT if alt else _LBL_BG))
+        bg_v = _NAVY if navy else (_RED_BG if red else (_ROW_ALT if alt else _WHITE))
+        fg_k = _WHITE if navy else (_RED_FG if red else "000000")
+        fg_v = _WHITE if navy else (_RED_FG if red else "000000")
+
+        ws.merge_cells(f"A{r}:B{r}")
+        k           = ws.cell(row=r, column=1)
+        k.value     = key
+        k.font      = _f(9, bold=True, color=fg_k)
+        k.fill      = _fill(bg_k)
+        k.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+        k.border    = _BORDER
+
+        ws.merge_cells(f"C{r}:{get_column_letter(N)}{r}")
+        v           = ws.cell(row=r, column=3)
+        v.value     = val
+        v.font      = _f(9, color=fg_v)
+        v.fill      = _fill(bg_v)
+        v.alignment = Alignment(horizontal="left", vertical="center", indent=1,
+                                wrap_text=red)  # wrap the risk row
+        v.border    = _BORDER
+        ws.row_dimensions[r].height = 32 if red else 18
+
+    _kv(row, "Moat Type",            claude.get("moat_type", "—"), navy=True);   row += 1
+    _kv(row, "Moat Strength",        claude.get("moat_strength", "—"), alt=False); row += 1
+    _kv(row, "Competitive Position", claude.get("position", "—"), alt=True);      row += 1
+    _kv(row, "Key Risk (24mo)",      claude.get("key_risk", "—"), red=True);      row += 1
+
+    if comp_result.get("warning"):
+        ws.merge_cells(f"A{row}:{get_column_letter(N)}{row}")
+        w           = ws.cell(row=row, column=1)
+        w.value     = f"Note: {comp_result['warning']}"
+        w.font      = _f(9, color="7D5A00")
+        w.fill      = _fill("FFF3CC")
+        w.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+        w.border    = _BORDER
+        ws.row_dimensions[row].height = 18
+        row += 1
+
+    row += 1  # spacer
+
+    # ── Section 2: Peer Comparison Table ─────────────────────────────────────
+    _fin_subhdr(ws, row, "PEER COMPARISON TABLE", N)
+    row += 1
+    _fin_col_hdr(ws, row, ["Company", "Ticker", "Mkt Cap",
+                            "Rev Growth", "Gross Margin", "Op Margin",
+                            "ROE", "D/E", "Fwd P/E", "vs Median P/E"])
+    row += 1
+
+    _YLW_BG = "FFF9C4"; _YLW_FG = "7D5A00"
+    _RANK_CLR = {
+        "top": (_GRN_BG, _GRN_FG),
+        "mid": (_YLW_BG, _YLW_FG),
+        "bot": (_RED_BG, _RED_FG),
+    }
+
+    def _cap(v):
+        if v is None: return "N/A"
+        if abs(v) >= 1e12: return f"${v/1e12:.1f}T"
+        if abs(v) >= 1e9:  return f"${v/1e9:.1f}B"
+        return f"${v/1e6:.0f}M"
+
+    def _pp(v):
+        return "N/A" if v is None else f"{v:.1f}%"
+
+    def _pf(v):
+        return "N/A" if v is None else f"{v:.1f}x"
+
+    def _pm(v):
+        return "N/A" if v is None else f"{v:+.1f}%"
+
+    # Metric columns: index → (data field, rank key or None)
+    METRIC_COLS = [
+        (3, "rev_growth",   "rev_growth"),
+        (4, "gross_margin", "gross_margin"),
+        (5, "op_margin",    "op_margin"),
+        (6, "roe",          "roe"),
+        (7, "de",           None),
+        (8, "fpe",          None),
+    ]
+    fpe_prem = ranks.get("fpe_premium_pct")
+    target_row_vals = [
+        target.get("name", "")[:22], target.get("ticker", ""),
+        _cap(target.get("mktcap")),
+        _pp(target.get("rev_growth")), _pp(target.get("gross_margin")),
+        _pp(target.get("op_margin")),  _pp(target.get("roe")),
+        _pp(target.get("de")),         _pf(target.get("fpe")),
+        _pm(fpe_prem),
+    ]
+
+    # Target row — metric cells color-coded by tercile, identity cols navy
+    for ci, val in enumerate(target_row_vals):
+        c           = ws.cell(row=row, column=ci + 1)
+        c.value     = val
+        c.border    = _BORDER
+        c.alignment = Alignment(horizontal="left" if ci == 0 else "right", vertical="center")
+
+        if ci < 2:   # Company, Ticker — navy
+            c.font = _f(9, bold=True, color=_WHITE)
+            c.fill = _fill(_NAVY)
+        elif ci == 2:  # Mkt Cap — navy
+            c.font = _f(9, bold=True, color=_WHITE)
+            c.fill = _fill(_NAVY)
+        elif ci == 9:  # vs Median P/E — navy
+            c.font = _f(9, bold=True, color=_WHITE)
+            c.fill = _fill(_NAVY)
+        else:
+            rank_key = {3: "rev_growth", 4: "gross_margin", 5: "op_margin",
+                        6: "roe"}.get(ci)
+            if rank_key:
+                r_str   = ranks.get(rank_key, "mid")
+                bg, fg  = _RANK_CLR.get(r_str, (_ROW_ALT, "000000"))
+                c.font  = _f(9, bold=True, color=fg)
+                c.fill  = _fill(bg)
+            else:
+                c.font = _f(9, bold=True, color=_WHITE)
+                c.fill = _fill(_NAVY)
+
+    ws.row_dimensions[row].height = 20
+    row += 1
+
+    # Peer rows, sorted by market cap descending
+    for idx, p in enumerate(sorted(peers, key=lambda x: x.get("mktcap") or 0, reverse=True)):
+        alt = idx % 2 == 1
+        bg  = _ROW_ALT if alt else _WHITE
+        vals = [
+            p.get("name", "")[:22], p.get("ticker", ""),
+            _cap(p.get("mktcap")),
+            _pp(p.get("rev_growth")), _pp(p.get("gross_margin")),
+            _pp(p.get("op_margin")),  _pp(p.get("roe")),
+            _pp(p.get("de")),         _pf(p.get("fpe")),
+            "—",
+        ]
+        for ci, val in enumerate(vals):
+            c           = ws.cell(row=row, column=ci + 1)
+            c.value     = val
+            c.font      = _f(9)
+            c.fill      = _fill(bg)
+            c.border    = _BORDER
+            c.alignment = Alignment(horizontal="left" if ci == 0 else "right",
+                                    vertical="center")
+        ws.row_dimensions[row].height = 18
+        row += 1
+
+    # Peer median row
+    med_vals = [
+        "Peer Median", "—", "—",
+        _pp(medians.get("rev_growth")), _pp(medians.get("gross_margin")),
+        _pp(medians.get("op_margin")),  _pp(medians.get("roe")),
+        "—", _pf(medians.get("fpe")), "—",
+    ]
+    for ci, val in enumerate(med_vals):
+        c           = ws.cell(row=row, column=ci + 1)
+        c.value     = val
+        c.font      = _f(9, bold=True, color=_WHITE)
+        c.fill      = _fill(_BLUE)
+        c.border    = _BORDER
+        c.alignment = Alignment(horizontal="left" if ci == 0 else "right",
+                                vertical="center")
+    ws.row_dimensions[row].height = 20
+    row += 1
+
+    row += 1  # spacer
+
+    # ── Section 3: Clustered Bar Chart ────────────────────────────────────────
+    _fin_subhdr(ws, row, f"{ticker} vs PEER MEDIAN — KEY MARGIN COMPARISON", N)
+    row += 1
+
+    # Write chart data table (categories as rows, series as columns)
+    chart_data_row = row
+    hdr_data = ["Metric", ticker, "Peer Median"]
+    chart_rows = [
+        ["Gross Margin",
+         target.get("gross_margin"), medians.get("gross_margin")],
+        ["Operating Margin",
+         target.get("op_margin"),   medians.get("op_margin")],
+        ["ROE",
+         target.get("roe"),         medians.get("roe")],
+    ]
+
+    # Header row
+    for ci, val in enumerate(hdr_data):
+        c           = ws.cell(row=row, column=ci + 1)
+        c.value     = val
+        c.font      = _f(9, bold=True, color=_WHITE)
+        c.fill      = _fill(_STEEL)
+        c.alignment = Alignment(horizontal="left" if ci == 0 else "right",
+                                vertical="center")
+        c.border    = _BORDER
+    ws.row_dimensions[row].height = 18
+    row += 1
+
+    for i, (label, tval, mval) in enumerate(chart_rows):
+        alt = i % 2 == 1
+        bg  = _ROW_ALT if alt else _WHITE
+        for ci, val in enumerate([label, tval, mval]):
+            c           = ws.cell(row=row, column=ci + 1)
+            c.value     = val
+            c.font      = _f(9)
+            c.fill      = _fill(bg)
+            c.border    = _BORDER
+            c.alignment = Alignment(horizontal="left" if ci == 0 else "right",
+                                    vertical="center")
+            if ci > 0 and val is not None:
+                c.number_format = "0.0"
+        ws.row_dimensions[row].height = 18
+        row += 1
+
+    chart_end_row = row - 1
+
+    # Build the clustered column chart
+    chart         = BarChart()
+    chart.type    = "col"
+    chart.grouping = "clustered"
+    chart.title   = f"{ticker} vs Peer Median — Gross Margin / Op Margin / ROE (%)"
+    chart.style   = 10
+    chart.y_axis.title  = "%"
+    chart.y_axis.numFmt = "0.0"
+    chart.x_axis.title  = "Metric"
+    chart.width   = 26
+    chart.height  = 15
+
+    data_ref = Reference(ws, min_col=2, max_col=3,
+                         min_row=chart_data_row, max_row=chart_end_row)
+    cats_ref = Reference(ws, min_col=1,
+                         min_row=chart_data_row + 1, max_row=chart_end_row)
+    chart.add_data(data_ref, titles_from_data=True)
+    chart.set_categories(cats_ref)
+
+    try:
+        chart.series[0].graphicalProperties.solidFill = _NAVY
+        chart.series[1].graphicalProperties.solidFill = "AAAAAA"
+    except Exception:
+        pass
+
+    from openpyxl.chart.legend import Legend as _Legend
+    leg          = _Legend()
+    leg.position = "b"
+    leg.overlay  = False
+    chart.legend = leg
+
+    ws.add_chart(chart, f"A{row + 1}")
+
+    # ── Column widths ─────────────────────────────────────────────────────────
+    for col, w in zip("ABCDEFGHIJ", [24, 10, 12, 14, 15, 14, 11, 10, 12, 16]):
+        ws.column_dimensions[col].width = w
+
+
 def build_excel(ticker: str, stats: dict, fin_data: dict,
                 price_history, sp500_history, markdown: str,
                 news_sentiment: dict | None,
                 dcf_result: dict | None,
                 research: dict | None,
+                comp_result: dict | None,
                 output_path: str) -> None:
     wb = openpyxl.Workbook()
     if "Sheet" in wb.sheetnames:
@@ -1387,4 +1678,5 @@ def build_excel(ticker: str, stats: dict, fin_data: dict,
     _build_thesis_sheet(wb, research)
     _build_comps_sheet(wb, research)
     _build_earnings_sheet(wb, research)
+    _build_competitive_sheet(wb, comp_result)
     wb.save(output_path)

@@ -24,6 +24,7 @@ def main() -> int:
     from excel import build_excel
     from dcf import run_dcf
     from research import run_research_pipeline
+    from competitive import run_competitive
 
     print(f"Fetching data for {ticker}...")
     data = fetch_stock_data(ticker)
@@ -53,13 +54,24 @@ def main() -> int:
         print("Spawning research pipeline (3 agents in parallel)...")
         research = run_research_pipeline(ticker, stats, fin_data)
 
+    print("Mapping competitive landscape...")
+    comp_result = run_competitive(ticker, stats, fin_data)
+    if comp_result.get("error"):
+        print(f"  Competitive: {comp_result['error']}")
+    else:
+        n_peers = len(comp_result.get("peers", []))
+        print(f"  Found {n_peers} peers via {comp_result.get('source')}")
+
     md_path = reports_dir / f"{ticker}.md"
     xl_path = reports_dir / f"{ticker}.xlsx"
 
     print("Generating analysis...")
-    markdown, news_sentiment = build_report(
-        ticker, stats, fin_data, news, dcf_result, research, dry_run=args.dry_run
+    markdown, news_sentiment, comp_assessment = build_report(
+        ticker, stats, fin_data, news, dcf_result, research, comp_result,
+        dry_run=args.dry_run
     )
+    if comp_assessment and not comp_result.get("error"):
+        comp_result["claude"] = comp_assessment
     md_path.write_text(markdown, encoding="utf-8")
     print(f"Saved: {md_path}")
 
@@ -68,9 +80,11 @@ def main() -> int:
         n_sheets += 1
     if research:
         n_sheets += 3
+    if comp_result:   # sheet always created (shows error note if failed)
+        n_sheets += 1
     print(f"Building Excel report ({n_sheets} sheets)...")
     build_excel(ticker, stats, fin_data, data["price_history"], data["sp500_history"],
-                markdown, news_sentiment, dcf_result, research, str(xl_path))
+                markdown, news_sentiment, dcf_result, research, comp_result, str(xl_path))
     print(f"Saved: {xl_path}")
     return 0
 
