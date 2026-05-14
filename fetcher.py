@@ -14,6 +14,7 @@ INFO_FIELDS = [
     "priceToBook", "fiftyTwoWeekHigh", "fiftyTwoWeekLow", "fiftyDayAverage",
     "twoHundredDayAverage", "sector", "industry", "longBusinessSummary",
     "shortName", "longName",
+    "beta", "sharesOutstanding", "impliedSharesOutstanding",
     "totalRevenue", "grossMargins", "operatingMargins", "profitMargins",
     "totalDebt", "freeCashflow", "dividendYield", "trailingEps", "forwardEps",
     "recommendationMean", "targetMeanPrice", "numberOfAnalystOpinions",

@@ -22,6 +22,7 @@ def main() -> int:
     from analyzer import compute_stats, compute_financials
     from reporter import build_report
     from excel import build_excel
+    from dcf import run_dcf
 
     print(f"Fetching data for {ticker}...")
     data = fetch_stock_data(ticker)
@@ -38,17 +39,25 @@ def main() -> int:
     stats    = compute_stats(data)
     fin_data = compute_financials(data)
 
+    print("Running DCF model...")
+    dcf_result = run_dcf(data, fin_data)
+    if dcf_result.get("error"):
+        print(f"  DCF skipped: {dcf_result['error']}")
+    else:
+        print(f"  WACC: {dcf_result['inputs']['wacc']:.2f}%")
+        print(f"  Intrinsic value: ${dcf_result['valuation']['intrinsic']:.2f}")
+
     md_path = reports_dir / f"{ticker}.md"
     xl_path = reports_dir / f"{ticker}.xlsx"
 
     print("Generating analysis...")
-    markdown, news_sentiment = build_report(ticker, stats, fin_data, news, dry_run=args.dry_run)
+    markdown, news_sentiment = build_report(ticker, stats, fin_data, news, dcf_result, dry_run=args.dry_run)
     md_path.write_text(markdown, encoding="utf-8")
     print(f"Saved: {md_path}")
 
     print("Building Excel report...")
     build_excel(ticker, stats, fin_data, data["price_history"], data["sp500_history"],
-                markdown, news_sentiment, str(xl_path))
+                markdown, news_sentiment, dcf_result, str(xl_path))
     print(f"Saved: {xl_path}")
     return 0
 

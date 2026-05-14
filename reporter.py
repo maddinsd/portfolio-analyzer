@@ -10,7 +10,7 @@ from datetime import date
 import anthropic
 
 MODEL = "claude-sonnet-4-6"
-MAX_TOKENS = 3500
+MAX_TOKENS = 4096
 SYSTEM_PROMPT = "You are a senior equity analyst. Be direct, specific, and data-driven. No disclaimers."
 ANALYSIS_STRUCTURE = (
     "## Company Snapshot\n"
@@ -25,6 +25,7 @@ ANALYSIS_STRUCTURE = (
     "## Bull Case\n"
     "## Bear Case\n"
     "## Key Risks\n"
+    "## DCF Valuation\n"
     "## Verdict (one sentence)"
 )
 
@@ -79,7 +80,8 @@ def _fmt_pct_plain(val) -> str:
 
 # ── Claude payload ────────────────────────────────────────────────────────────
 
-def _build_payload(stats: dict, fin_data: dict, news: list | None = None) -> str:
+def _build_payload(stats: dict, fin_data: dict, news: list | None = None,
+                   dcf_result: dict | None = None) -> str:
     info = stats["info"]
 
     payload: dict = {
@@ -135,6 +137,20 @@ def _build_payload(stats: dict, fin_data: dict, news: list | None = None) -> str
 
     if news:
         payload["news"] = [a["headline"][:60] for a in news if a.get("headline")]
+
+    if dcf_result and not dcf_result.get("error"):
+        v   = dcf_result["valuation"]
+        inp = dcf_result["inputs"]
+        payload["dcf"] = {
+            "iv":   _fmt(v["intrinsic"]),
+            "px":   _fmt(v["current_price"]) if v["current_price"] else "N/A",
+            "up":   _fmt_pct(v["upside_pct"]) if v["upside_pct"] is not None else "N/A",
+            "wacc": f"{inp['wacc']}%",
+            "tv":   f"{v['tv_pct']}%",
+            "ev":   _fmt_large(v["ev_m"] * 1e6) if v["ev_m"] else "N/A",
+        }
+        if dcf_result.get("warnings"):
+            payload["dcf"]["warn"] = dcf_result["warnings"][0]
 
     payload_json = json.dumps(payload, separators=(",", ":"))
     return payload_json
@@ -277,8 +293,9 @@ def _news_md_section(sent_data: dict) -> str:
 # ── Main entry point ──────────────────────────────────────────────────────────
 
 def build_report(ticker: str, stats: dict, fin_data: dict,
-                 news: list | None = None, dry_run: bool = False) -> tuple[str, dict | None]:
-    payload_json = _build_payload(stats, fin_data, news)
+                 news: list | None = None, dcf_result: dict | None = None,
+                 dry_run: bool = False) -> tuple[str, dict | None]:
+    payload_json = _build_payload(stats, fin_data, news, dcf_result)
 
     if dry_run:
         print("=== DRY RUN: Claude payload ===")
@@ -295,6 +312,16 @@ def build_report(ticker: str, stats: dict, fin_data: dict,
     if not api_key:
         print("Error: ANTHROPIC_API_KEY environment variable not set.", file=sys.stderr)
         sys.exit(1)
+
+    # DCF instruction appended to both prompt branches
+    if dcf_result and not dcf_result.get("error"):
+        dcf_inst = (
+            "\n\n## DCF Valuation: use the dcf key. Quote intrinsic value, WACC, "
+            "implied upside/downside %, terminal value % of EV. Compare to analyst "
+            "consensus target. State over/undervalued. Flag any warnings. 3-4 sentences."
+        )
+    else:
+        dcf_inst = "\n\n## DCF Valuation: Model unavailable — note in one sentence."
 
     if news:
         json_schema = (
@@ -315,12 +342,14 @@ def build_report(ticker: str, stats: dict, fin_data: dict,
             f"`type`: Earnings/Product/Regulatory/Macro/Technical/M&A/Management/Analyst/Other. "
             f"`momentum`: Improving/Stable/Deteriorating. "
             f"Write `note` and `summary` as a senior equity analyst: specific, data-referenced, actionable."
+            f"{dcf_inst}"
         )
     else:
         user_content = (
             f"Analyze this stock. Use exactly these section headers:\n"
             f"{ANALYSIS_STRUCTURE}\n\n"
             f"Data: {payload_json}"
+            f"{dcf_inst}"
         )
 
     client = anthropic.Anthropic(api_key=api_key)

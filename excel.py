@@ -866,11 +866,262 @@ def _build_news_sheet(wb, sent_data: dict | None) -> None:
         ws.column_dimensions[col].width = w
 
 
+# ── DCF Model sheet ───────────────────────────────────────────────────────────
+
+def _build_dcf_sheet(wb, dcf_result: dict | None, ticker: str) -> None:
+    if not dcf_result or dcf_result.get("error"):
+        return
+
+    ws  = wb.create_sheet("DCF Model")
+    inp = dcf_result["inputs"]
+    fc  = dcf_result["forecast"]
+    val = dcf_result["valuation"]
+    sen = dcf_result["sensitivity"]
+    px  = val["current_price"] or 0
+
+    NCOLS = 6   # A–F used throughout
+
+    # Title
+    _fin_title(ws, 1, f"DCF MODEL  —  {ticker}", NCOLS)
+
+    # Subtitle
+    ws.merge_cells(f"A2:{get_column_letter(NCOLS)}2")
+    sub           = ws["A2"]
+    sub.value     = "Two-Stage Discounted Cash Flow  ·  FCFF-based  ·  Gordon Growth Terminal Value"
+    sub.font      = _f(9, color="5A6B7B")
+    sub.fill      = _fill(_SUBTITLE)
+    sub.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[2].height = 16
+
+    row = 4   # row 3 is a blank spacer (default height)
+
+    # ── Section 1: Model Assumptions ─────────────────────────────────────────
+    _fin_subhdr(ws, row, "MODEL ASSUMPTIONS", NCOLS)
+    row += 1
+    _fin_col_hdr(ws, row, ["Assumption", "Value"])
+    row += 1
+
+    assumptions = [
+        ("Risk-Free Rate",           f"{inp['rf']:.2f}%",          False),
+        ("Equity Risk Premium",      f"{inp['erp']:.2f}%",         False),
+        ("Beta (5-yr Monthly)",      f"{inp['beta']:.3f}",         False),
+        ("Cost of Equity (Ke)",      f"{inp['ke']:.2f}%",          False),
+        ("Pre-Tax Cost of Debt",     f"{inp['kd_pretax']:.2f}%",   False),
+        ("After-Tax Cost of Debt",   f"{inp['kd_aftertax']:.2f}%", False),
+        ("Effective Tax Rate",       f"{inp['tax_rate']:.2f}%",    False),
+        ("Equity Weight",            f"{inp['we']:.1f}%",          False),
+        ("Debt Weight",              f"{inp['wd']:.1f}%",          False),
+        ("WACC",                     f"{inp['wacc']:.2f}%",        False),  # idx 9 — highlighted
+        ("Revenue CAGR (3-yr Hist)", f"{inp['rev_cagr']:.2f}%",   False),
+        ("EBIT Margin (Hist. Avg)",  f"{inp['ebit_margin']:.2f}%", False),
+        ("D&A as % of Revenue",      f"{inp['da_pct']:.2f}%",      False),
+        ("CapEx as % of Revenue",    f"{inp['capex_pct']:.2f}%",   False),
+        ("ΔWC as % of Revenue", f"{inp['nwc_pct']:.2f}%",     False),
+        ("Terminal Growth Rate",     f"{inp['tg']:.2f}%",          False),
+        ("Forecast Horizon",         "5 Years",                    False),
+    ]
+
+    for idx, (label, value, _) in enumerate(assumptions):
+        alt      = idx % 2 == 1
+        is_wacc  = (idx == 9)
+        lbl_bg   = _BLUE if is_wacc else (_LBL_ALT if alt else _LBL_BG)
+        val_bg   = _BLUE if is_wacc else (_ROW_ALT if alt else _WHITE)
+        txt_clr  = _WHITE if is_wacc else "000000"
+
+        lbl           = ws.cell(row=row, column=1)
+        lbl.value     = label
+        lbl.font      = _f(9, bold=True, color=txt_clr)
+        lbl.fill      = _fill(lbl_bg)
+        lbl.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+        lbl.border    = _BORDER
+
+        vc           = ws.cell(row=row, column=2)
+        vc.value     = value
+        vc.font      = _f(9, bold=is_wacc, color=txt_clr)
+        vc.fill      = _fill(val_bg)
+        vc.alignment = Alignment(horizontal="right", vertical="center")
+        vc.border    = _BORDER
+
+        ws.row_dimensions[row].height = 17
+        row += 1
+
+    row += 1  # spacer
+
+    # ── Section 2: 5-Year FCFF Forecast ──────────────────────────────────────
+    years = ["Year 1", "Year 2", "Year 3", "Year 4", "Year 5"]
+    _fin_subhdr(ws, row, "5-YEAR FCFF FORECAST  ($M)", NCOLS)
+    row += 1
+    _fin_col_hdr(ws, row, ["Metric"] + years)
+    row += 1
+
+    forecast_rows = [
+        ("Revenue Growth",  [f"{g:.1f}%" for g in fc["growth_pct"]], True),
+        ("Revenue ($M)",    [_fmt_m(v) for v in fc["revenue_m"]],    False),
+        ("EBIT ($M)",       [_fmt_m(v) for v in fc["ebit_m"]],       False),
+        ("NOPAT ($M)",      [_fmt_m(v) for v in fc["nopat_m"]],      False),
+        ("D&A ($M)",        [_fmt_m(v) for v in fc["da_m"]],         False),
+        ("CapEx ($M)",      [_fmt_m(v) for v in fc["capex_m"]],      False),
+        ("ΔNWC ($M)",  [_fmt_m(v) for v in fc["dnwc_m"]],       False),
+        ("FCFF ($M)",       [_fmt_m(v) for v in fc["fcff_m"]],       False),
+    ]
+
+    alt = False
+    for label, values, is_growth in forecast_rows:
+        _fin_data_row(ws, row, label, values, alt=alt, is_growth=is_growth)
+        row += 1
+        alt = not alt
+
+    row += 1  # spacer
+
+    # ── Section 3: Valuation Bridge ──────────────────────────────────────────
+    _fin_subhdr(ws, row, "VALUATION BRIDGE", NCOLS)
+    row += 1
+    _fin_col_hdr(ws, row, ["Metric", "Value"])
+    row += 1
+
+    upside_str = (f"{val['upside_pct']:+.1f}%"
+                  if val["upside_pct"] is not None else "N/A")
+    iv_str = f"${val['intrinsic']:.2f}"
+    px_str = f"${px:.2f}" if px else "N/A"
+
+    valuation_rows = [
+        ("PV of Explicit Forecast",      _fmt_m(val["pv_fcff_m"]),  False),
+        ("Terminal Value (undiscounted)", _fmt_m(val["tv_m"]),       False),
+        ("PV of Terminal Value",          _fmt_m(val["pv_tv_m"]),    False),
+        ("Terminal Value % of EV",        f"{val['tv_pct']:.1f}%",  False),
+        ("Enterprise Value",              _fmt_m(val["ev_m"]),       False),  # idx 4 — highlighted
+        ("Less: Net Debt",                _fmt_m(val["net_debt_m"]), False),
+        ("Equity Value",                  _fmt_m(val["eq_val_m"]),   False),
+        ("Shares Outstanding",            f"{val['shares_m']:.2f}M", False),
+        ("Intrinsic Value / Share",       iv_str,                    False),  # idx 8 — highlighted
+        ("Current Price",                 px_str,                    False),
+        ("Implied Upside / Downside",     upside_str,                True),   # green/red
+    ]
+
+    for idx, (label, value, is_growth) in enumerate(valuation_rows):
+        alt     = idx % 2 == 1
+        is_ev   = (idx == 4)
+        is_iv   = (idx == 8)
+        special = is_ev or is_iv
+
+        lbl_bg  = _BLUE if special else (_LBL_ALT if alt else _LBL_BG)
+        val_bg  = _BLUE if special else (_ROW_ALT if alt else _WHITE)
+        txt_clr = _WHITE if special else "000000"
+
+        lbl           = ws.cell(row=row, column=1)
+        lbl.value     = label
+        lbl.font      = _f(9, bold=True, color=txt_clr)
+        lbl.fill      = _fill(lbl_bg)
+        lbl.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+        lbl.border    = _BORDER
+
+        vc = ws.cell(row=row, column=2)
+        vc.value  = value
+        vc.border = _BORDER
+        vc.alignment = Alignment(horizontal="right", vertical="center")
+
+        if special:
+            vc.font = _f(9, bold=True, color=txt_clr)
+            vc.fill = _fill(val_bg)
+        elif is_growth and value not in ("N/A", ""):
+            try:
+                n = float(value.replace("%", "").replace("+", ""))
+                if n > 0:
+                    vc.font = _f(9, color=_GRN_FG); vc.fill = _fill(_GRN_BG)
+                elif n < 0:
+                    vc.font = _f(9, color=_RED_FG); vc.fill = _fill(_RED_BG)
+                else:
+                    vc.font = _f(9); vc.fill = _fill(val_bg)
+            except ValueError:
+                vc.font = _f(9); vc.fill = _fill(val_bg)
+        else:
+            vc.font = _f(9)
+            vc.fill = _fill(val_bg)
+
+        ws.row_dimensions[row].height = 17
+        row += 1
+
+    row += 1  # spacer
+
+    # ── Section 4: Sensitivity Table ─────────────────────────────────────────
+    _fin_subhdr(ws, row, "SENSITIVITY: INTRINSIC VALUE PER SHARE  ($/share)", NCOLS)
+    row += 1
+
+    ws.merge_cells(f"A{row}:{get_column_letter(NCOLS)}{row}")
+    note           = ws.cell(row=row, column=1)
+    note.value     = "Row = WACC  ·  Column = Terminal Growth Rate  ·  Base case highlighted in navy"
+    note.font      = _f(9, color="595959")
+    note.fill      = _fill("F2F6FC")
+    note.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[row].height = 16
+    row += 1
+
+    tg_hdrs = [f"{t:.1f}%" for t in sen["tg_range"]]
+    _fin_col_hdr(ws, row, ["WACC \\ Term Growth"] + tg_hdrs)
+    row += 1
+
+    for ri, (w, row_vals) in enumerate(zip(sen["wacc_range"], sen["table"])):
+        is_base_row = (ri == 2)
+
+        lbl           = ws.cell(row=row, column=1)
+        lbl.value     = f"{w:.2f}%"
+        lbl.font      = _f(9, bold=True, color=_WHITE if is_base_row else "000000")
+        lbl.fill      = _fill(_NAVY if is_base_row else (_LBL_ALT if ri % 2 else _LBL_BG))
+        lbl.alignment = Alignment(horizontal="center", vertical="center")
+        lbl.border    = _BORDER
+
+        for ci, iv in enumerate(row_vals):
+            is_base = is_base_row and ci == 2
+            c        = ws.cell(row=row, column=ci + 2)
+            c.border  = _BORDER
+            c.alignment = Alignment(horizontal="center", vertical="center")
+            if iv is None:
+                c.value = "N/A"
+                c.font  = _f(9, color="999999")
+                c.fill  = _fill("F2F2F2")
+            elif is_base:
+                c.value = f"${iv:.2f}"
+                c.font  = _f(9, bold=True, color=_WHITE)
+                c.fill  = _fill(_NAVY)
+            elif px and iv > px:
+                c.value = f"${iv:.2f}"
+                c.font  = _f(9, color=_GRN_FG)
+                c.fill  = _fill(_GRN_BG)
+            elif px and iv < px:
+                c.value = f"${iv:.2f}"
+                c.font  = _f(9, color=_RED_FG)
+                c.fill  = _fill(_RED_BG)
+            else:
+                c.value = f"${iv:.2f}"
+                c.font  = _f(9)
+                c.fill  = _fill(_ROW_ALT if ri % 2 else _WHITE)
+
+        ws.row_dimensions[row].height = 18
+        row += 1
+
+    # Warning banner if any
+    if dcf_result.get("warnings"):
+        row += 1
+        ws.merge_cells(f"A{row}:{get_column_letter(NCOLS)}{row}")
+        w           = ws.cell(row=row, column=1)
+        w.value     = "  ".join(dcf_result["warnings"])
+        w.font      = _f(9, bold=True, color=_RED_FG)
+        w.fill      = _fill(_RED_BG)
+        w.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+        ws.row_dimensions[row].height = 20
+
+    # Column widths
+    ws.column_dimensions["A"].width = 30
+    for col in "BCDEF":
+        ws.column_dimensions[col].width = 14
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def build_excel(ticker: str, stats: dict, fin_data: dict,
                 price_history, sp500_history, markdown: str,
                 news_sentiment: dict | None,
+                dcf_result: dict | None,
                 output_path: str) -> None:
     wb = openpyxl.Workbook()
     if "Sheet" in wb.sheetnames:
@@ -884,4 +1135,5 @@ def build_excel(ticker: str, stats: dict, fin_data: dict,
     _build_balance_sheet_sheet(wb, fin_data)
     _build_cashflow_sheet(wb, fin_data)
     _build_news_sheet(wb, news_sentiment)
+    _build_dcf_sheet(wb, dcf_result, ticker)
     wb.save(output_path)
