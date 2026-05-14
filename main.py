@@ -23,6 +23,7 @@ def main() -> int:
     from reporter import build_report
     from excel import build_excel
     from dcf import run_dcf
+    from research import run_research_pipeline
 
     print(f"Fetching data for {ticker}...")
     data = fetch_stock_data(ticker)
@@ -47,17 +48,29 @@ def main() -> int:
         print(f"  WACC: {dcf_result['inputs']['wacc']:.2f}%")
         print(f"  Intrinsic value: ${dcf_result['valuation']['intrinsic']:.2f}")
 
+    research = None
+    if not args.dry_run:
+        print("Spawning research pipeline (3 agents in parallel)...")
+        research = run_research_pipeline(ticker, stats, fin_data)
+
     md_path = reports_dir / f"{ticker}.md"
     xl_path = reports_dir / f"{ticker}.xlsx"
 
     print("Generating analysis...")
-    markdown, news_sentiment = build_report(ticker, stats, fin_data, news, dcf_result, dry_run=args.dry_run)
+    markdown, news_sentiment = build_report(
+        ticker, stats, fin_data, news, dcf_result, research, dry_run=args.dry_run
+    )
     md_path.write_text(markdown, encoding="utf-8")
     print(f"Saved: {md_path}")
 
-    print("Building Excel report...")
+    n_sheets = 9
+    if dcf_result and not dcf_result.get("error"):
+        n_sheets += 1
+    if research:
+        n_sheets += 3
+    print(f"Building Excel report ({n_sheets} sheets)...")
     build_excel(ticker, stats, fin_data, data["price_history"], data["sp500_history"],
-                markdown, news_sentiment, dcf_result, str(xl_path))
+                markdown, news_sentiment, dcf_result, research, str(xl_path))
     print(f"Saved: {xl_path}")
     return 0
 

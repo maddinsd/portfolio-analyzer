@@ -290,10 +290,89 @@ def _news_md_section(sent_data: dict) -> str:
     return "\n".join(lines)
 
 
+# ── Research pipeline markdown ────────────────────────────────────────────────
+
+def _research_md_sections(research: dict) -> str:
+    parts = []
+
+    # Investment Thesis
+    th = research.get("thesis", {})
+    if not th.get("_placeholder"):
+        lines = ["---", "", "## Investment Thesis", "",
+                 f"**Rating:** {th.get('rating','N/A')}   ·   **Target:** {th.get('target','N/A')}",
+                 ""]
+        if th.get("bull"):
+            lines += ["**Bull Case**"] + [f"{i+1}. {p}" for i, p in enumerate(th["bull"])] + [""]
+        if th.get("bear"):
+            lines += ["**Bear Case**"] + [f"{i+1}. {p}" for i, p in enumerate(th["bear"])] + [""]
+        if th.get("catalysts"):
+            lines += ["**Key Catalysts**"] + [f"- {c}" for c in th["catalysts"]] + [""]
+        if th.get("verdict"):
+            lines += [f"**Verdict:** {th['verdict']}", ""]
+        parts.append("\n".join(lines))
+    else:
+        parts.append("---\n\n## Investment Thesis\n\n*Analysis unavailable.*\n")
+
+    # Comps Analysis
+    co = research.get("comps", {})
+    if not co.get("_placeholder"):
+        lines = ["---", "", "## Comparable Companies Analysis", ""]
+        if co.get("summary"):
+            lines += [co["summary"], ""]
+        if co.get("premium"):
+            lines += [f"**vs. Peer Median:** {co['premium']}", ""]
+        if co.get("comps"):
+            lines += ["| Company | Ticker | EV/EBITDA | P/E (Fwd) | EV/Revenue | Note |",
+                      "|---|---|---|---|---|---|"]
+            for c in co["comps"]:
+                def _mx(v):
+                    try: return f"{float(v):.1f}x"
+                    except Exception: return str(v) if v is not None else "N/A"
+                lines.append(
+                    f"| {c.get('company','')} | {c.get('ticker','')} | "
+                    f"{_mx(c.get('ev_ebitda'))} | {_mx(c.get('pe_fwd'))} | "
+                    f"{_mx(c.get('ev_rev'))} | {c.get('note','')} |"
+                )
+            lines.append("")
+        parts.append("\n".join(lines))
+    else:
+        parts.append("---\n\n## Comparable Companies Analysis\n\n*Analysis unavailable.*\n")
+
+    # Earnings Preview
+    ep = research.get("earnings", {})
+    if not ep.get("_placeholder"):
+        lines = ["---", "", "## Earnings Preview", ""]
+        meta = "   ·   ".join(x for x in [
+            f"**Next Earnings:** {ep['next_earnings']}" if ep.get("next_earnings") else None,
+            f"**Consensus Revenue:** {ep['consensus_rev']}" if ep.get("consensus_rev") else None,
+            f"**EPS:** {ep['consensus_eps']}" if ep.get("consensus_eps") else None,
+            f"**Options Implied Move:** {ep['implied_move']}" if ep.get("implied_move") else None,
+        ] if x)
+        if meta:
+            lines += [meta, ""]
+        if ep.get("watch"):
+            lines += [f"**Key Metrics to Watch:** {' · '.join(ep['watch'])}", ""]
+        if ep.get("scenarios"):
+            lines += ["| Scenario | Revenue | EPS | Implied Move | Probability | Trigger |",
+                      "|---|---|---|---|---|---|"]
+            for s in ep["scenarios"]:
+                lines.append(
+                    f"| {s.get('name','')} | {s.get('rev','')} | {s.get('eps','')} | "
+                    f"{s.get('move','')} | {s.get('prob','')} | {s.get('trigger','')} |"
+                )
+            lines.append("")
+        parts.append("\n".join(lines))
+    else:
+        parts.append("---\n\n## Earnings Preview\n\n*Analysis unavailable.*\n")
+
+    return "\n".join(parts)
+
+
 # ── Main entry point ──────────────────────────────────────────────────────────
 
 def build_report(ticker: str, stats: dict, fin_data: dict,
                  news: list | None = None, dcf_result: dict | None = None,
+                 research: dict | None = None,
                  dry_run: bool = False) -> tuple[str, dict | None]:
     payload_json = _build_payload(stats, fin_data, news, dcf_result)
 
@@ -398,12 +477,14 @@ def build_report(ticker: str, stats: dict, fin_data: dict,
             "themes": themes, "catalyst": catalyst, "summary": summary,
         }
 
-    news_section = _news_md_section(sent_data) + "\n" if sent_data else ""
-    fin_tables   = _financial_statements_md(fin_data)
+    news_section    = _news_md_section(sent_data) + "\n" if sent_data else ""
+    fin_tables      = _financial_statements_md(fin_data)
+    research_md     = "\n" + _research_md_sections(research) if research else ""
     markdown = (
         f"# {ticker} Stock Analysis — {date.today()}\n\n"
         f"{analysis}\n\n"
         f"{news_section}"
         f"{fin_tables}"
+        f"{research_md}"
     )
     return markdown, sent_data

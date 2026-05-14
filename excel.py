@@ -866,6 +866,253 @@ def _build_news_sheet(wb, sent_data: dict | None) -> None:
         ws.column_dimensions[col].width = w
 
 
+# ── Research pipeline sheets ─────────────────────────────────────────────────
+
+def _build_thesis_sheet(wb, research: dict | None) -> None:
+    if not research:
+        return
+    th = research.get("thesis", {})
+    ws = wb.create_sheet("Investment Thesis")
+
+    ws.merge_cells("A1:B1")
+    t           = ws["A1"]
+    t.value     = "INVESTMENT THESIS"
+    t.font      = _f(14, bold=True, color=_WHITE)
+    t.fill      = _fill(_NAVY)
+    t.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 36
+
+    if th.get("_placeholder"):
+        ws.merge_cells("A3:B3")
+        c       = ws.cell(row=3, column=1)
+        c.value = f"Analysis unavailable: {th.get('_error', 'unknown')}"
+        c.font  = _f(10, color="999999")
+        ws.column_dimensions["A"].width = 70
+        ws.column_dimensions["B"].width = 70
+        return
+
+    rating = th.get("rating", "N/A")
+    r_bg, r_fg = {
+        "Buy":  (_GRN_BG, _GRN_FG),
+        "Sell": (_RED_BG, _RED_FG),
+    }.get(rating, ("FFF3CD", "856404"))
+
+    ws.merge_cells("A2:B2")
+    rb           = ws["A2"]
+    rb.value     = f"Rating: {rating}   ·   Target: {th.get('target','N/A')}"
+    rb.font      = _f(11, bold=True, color=r_fg)
+    rb.fill      = _fill(r_bg)
+    rb.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[2].height = 28
+    row = 3
+
+    def _section(header, points, hdr_bg, pt_bg, pt_bg_alt, pt_fg):
+        nonlocal row
+        ws.row_dimensions[row].height = 8
+        row += 1
+        ws.merge_cells(f"A{row}:B{row}")
+        h           = ws.cell(row=row, column=1)
+        h.value     = header
+        h.font      = _f(10, bold=True, color=_WHITE)
+        h.fill      = _fill(hdr_bg)
+        h.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+        ws.row_dimensions[row].height = 22
+        row += 1
+        for i, pt in enumerate(points):
+            ws.merge_cells(f"A{row}:B{row}")
+            c           = ws.cell(row=row, column=1)
+            c.value     = f"  {i+1}.  {pt}"
+            c.font      = _f(10, color=pt_fg)
+            c.fill      = _fill(pt_bg_alt if i % 2 else pt_bg)
+            c.alignment = Alignment(wrap_text=True, vertical="top", indent=1)
+            c.border    = _BORDER
+            ws.row_dimensions[row].height = max(22, math.ceil(len(pt) / 100) * 16 + 4)
+            row += 1
+
+    if th.get("bull"):
+        _section("BULL CASE", th["bull"], _BULL_DARK, _GRN_BG, _BULL_BG_ALT, _BULL_DARK)
+    if th.get("bear"):
+        _section("BEAR CASE", th["bear"], _BEAR_DARK, _RED_BG, _BEAR_BG_ALT, _BEAR_DARK)
+
+    if th.get("catalysts"):
+        ws.row_dimensions[row].height = 8; row += 1
+        ws.merge_cells(f"A{row}:B{row}")
+        h           = ws.cell(row=row, column=1)
+        h.value     = "KEY CATALYSTS"
+        h.font      = _f(10, bold=True, color=_WHITE)
+        h.fill      = _fill(_BLUE)
+        h.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+        ws.row_dimensions[row].height = 22; row += 1
+        for i, cat in enumerate(th["catalysts"]):
+            ws.merge_cells(f"A{row}:B{row}")
+            c           = ws.cell(row=row, column=1)
+            c.value     = f"  ◆  {cat}"
+            c.font      = _f(10, color=_NAVY)
+            c.fill      = _fill("C8DDF0" if i % 2 else "DCE9F7")
+            c.alignment = Alignment(wrap_text=True, vertical="top", indent=1)
+            c.border    = _BORDER
+            ws.row_dimensions[row].height = max(22, math.ceil(len(cat) / 100) * 16 + 4)
+            row += 1
+
+    if th.get("verdict"):
+        ws.row_dimensions[row].height = 8; row += 1
+        ws.merge_cells(f"A{row}:B{row}")
+        c           = ws.cell(row=row, column=1)
+        c.value     = f"VERDICT  ·  {th['verdict']}"
+        c.font      = _f(10, bold=True, color=_NAVY)
+        c.fill      = _fill(_SUBTITLE)
+        c.alignment = Alignment(wrap_text=True, vertical="center", indent=2)
+        ws.row_dimensions[row].height = max(30, math.ceil(len(th["verdict"]) / 100) * 16 + 6)
+
+    ws.column_dimensions["A"].width = 70
+    ws.column_dimensions["B"].width = 70
+
+
+def _build_comps_sheet(wb, research: dict | None) -> None:
+    if not research:
+        return
+    co = research.get("comps", {})
+    ws = wb.create_sheet("Comps Analysis")
+    N  = 6
+
+    _fin_title(ws, 1, "COMPARABLE COMPANIES ANALYSIS  (multiples approximate)", N)
+
+    if co.get("_placeholder"):
+        ws.merge_cells(f"A3:{get_column_letter(N)}3")
+        c       = ws.cell(row=3, column=1)
+        c.value = f"Analysis unavailable: {co.get('_error','unknown')}"
+        c.font  = _f(10, color="999999")
+        return
+
+    row = 3
+    if co.get("summary"):
+        ws.merge_cells(f"A{row}:{get_column_letter(N)}{row}")
+        c           = ws.cell(row=row, column=1)
+        c.value     = co["summary"]
+        c.font      = _f(10, color="2C3E50")
+        c.fill      = _fill(_SUBTITLE)
+        c.alignment = Alignment(wrap_text=True, vertical="center", indent=2)
+        ws.row_dimensions[row].height = max(40, math.ceil(len(co["summary"]) / 130) * 16 + 8)
+        row += 1
+
+    if co.get("premium"):
+        ws.merge_cells(f"A{row}:{get_column_letter(N)}{row}")
+        c           = ws.cell(row=row, column=1)
+        c.value     = f"vs. Peer Median EV/EBITDA:  {co['premium']}"
+        c.font      = _f(10, bold=True, color=_NAVY)
+        c.fill      = _fill("DCE9F7")
+        c.alignment = Alignment(horizontal="left", vertical="center", indent=2)
+        ws.row_dimensions[row].height = 22
+        row += 1
+
+    ws.row_dimensions[row].height = 8; row += 1
+
+    _fin_col_hdr(ws, row, ["Company", "Ticker", "EV/EBITDA", "P/E (Fwd)", "EV/Revenue", "Note"])
+    row += 1
+
+    def _mx(v):
+        try: return f"{float(v):.1f}x"
+        except Exception: return str(v) if v is not None else "N/A"
+
+    for i, comp in enumerate(co.get("comps", [])):
+        alt    = i % 2 == 1
+        bg     = _ROW_ALT if alt else _WHITE
+        values = [comp.get("company",""), comp.get("ticker",""),
+                  _mx(comp.get("ev_ebitda")), _mx(comp.get("pe_fwd")),
+                  _mx(comp.get("ev_rev")),    comp.get("note","")]
+        for ci, val in enumerate(values):
+            c           = ws.cell(row=row, column=ci + 1)
+            c.value     = val
+            c.font      = _f(9)
+            c.fill      = _fill(bg)
+            c.border    = _BORDER
+            left        = ci in (0, 5)
+            c.alignment = Alignment(horizontal="left" if left else "center",
+                                    vertical="center", wrap_text=(ci == 5),
+                                    indent=1 if left else 0)
+        ws.row_dimensions[row].height = 18
+        row += 1
+
+    for col, w in zip("ABCDEF", [24, 10, 13, 13, 13, 36]):
+        ws.column_dimensions[col].width = w
+
+
+def _build_earnings_sheet(wb, research: dict | None) -> None:
+    if not research:
+        return
+    ep = research.get("earnings", {})
+    ws = wb.create_sheet("Earnings Preview")
+    N  = 6
+
+    _fin_title(ws, 1, "EARNINGS PREVIEW", N)
+
+    if ep.get("_placeholder"):
+        ws.merge_cells(f"A3:{get_column_letter(N)}3")
+        c       = ws.cell(row=3, column=1)
+        c.value = f"Analysis unavailable: {ep.get('_error','unknown')}"
+        c.font  = _f(10, color="999999")
+        return
+
+    row = 3
+    meta = "   ·   ".join(x for x in [
+        f"Next Earnings: {ep['next_earnings']}"       if ep.get("next_earnings")   else None,
+        f"Consensus Rev: {ep['consensus_rev']}"       if ep.get("consensus_rev")   else None,
+        f"Consensus EPS: {ep['consensus_eps']}"       if ep.get("consensus_eps")   else None,
+        f"Options Implied Move: {ep['implied_move']}" if ep.get("implied_move")    else None,
+    ] if x)
+    if meta:
+        ws.merge_cells(f"A{row}:{get_column_letter(N)}{row}")
+        c           = ws.cell(row=row, column=1)
+        c.value     = meta
+        c.font      = _f(10, bold=True, color=_NAVY)
+        c.fill      = _fill(_SUBTITLE)
+        c.alignment = Alignment(horizontal="center", vertical="center")
+        ws.row_dimensions[row].height = 26
+        row += 1
+
+    if ep.get("watch"):
+        ws.merge_cells(f"A{row}:{get_column_letter(N)}{row}")
+        c           = ws.cell(row=row, column=1)
+        c.value     = "KEY METRICS TO WATCH   ·   " + "     ·     ".join(ep["watch"])
+        c.font      = _f(10, bold=True, color=_NAVY)
+        c.fill      = _fill("DCE9F7")
+        c.alignment = Alignment(horizontal="left", vertical="center", indent=2)
+        ws.row_dimensions[row].height = 22
+        row += 1
+
+    ws.row_dimensions[row].height = 8; row += 1
+
+    _fin_col_hdr(ws, row, ["Scenario", "Revenue", "EPS", "Implied Move", "Probability", "Trigger / Key Driver"])
+    row += 1
+
+    _SCEN = {"Bull": (_GRN_BG, _GRN_FG), "Base": ("FFF8E1", "856404"), "Bear": (_RED_BG, _RED_FG)}
+    for s in ep.get("scenarios", []):
+        name    = s.get("name", "")
+        bg, fg  = _SCEN.get(name, ("F2F2F2", "595959"))
+        values  = [name, s.get("rev",""), s.get("eps",""),
+                   s.get("move",""), s.get("prob",""), s.get("trigger","")]
+        for ci, val in enumerate(values):
+            c           = ws.cell(row=row, column=ci + 1)
+            c.value     = val
+            c.fill      = _fill(bg)
+            c.border    = _BORDER
+            if ci == 0:
+                c.font      = _f(10, bold=True, color=fg)
+                c.alignment = Alignment(horizontal="center", vertical="top")
+            elif ci == 5:
+                c.font      = _f(9, color="1A1A2E")
+                c.alignment = Alignment(horizontal="left", vertical="top",
+                                        wrap_text=True, indent=1)
+            else:
+                c.font      = _f(9, bold=True, color=fg)
+                c.alignment = Alignment(horizontal="center", vertical="top")
+        ws.row_dimensions[row].height = max(36, math.ceil(len(s.get("trigger","")) / 35) * 16 + 6)
+        row += 1
+
+    for col, w in zip("ABCDEF", [14, 13, 10, 15, 14, 42]):
+        ws.column_dimensions[col].width = w
+
+
 # ── DCF Model sheet ───────────────────────────────────────────────────────────
 
 def _build_dcf_sheet(wb, dcf_result: dict | None, ticker: str) -> None:
@@ -1122,6 +1369,7 @@ def build_excel(ticker: str, stats: dict, fin_data: dict,
                 price_history, sp500_history, markdown: str,
                 news_sentiment: dict | None,
                 dcf_result: dict | None,
+                research: dict | None,
                 output_path: str) -> None:
     wb = openpyxl.Workbook()
     if "Sheet" in wb.sheetnames:
@@ -1136,4 +1384,7 @@ def build_excel(ticker: str, stats: dict, fin_data: dict,
     _build_cashflow_sheet(wb, fin_data)
     _build_news_sheet(wb, news_sentiment)
     _build_dcf_sheet(wb, dcf_result, ticker)
+    _build_thesis_sheet(wb, research)
+    _build_comps_sheet(wb, research)
+    _build_earnings_sheet(wb, research)
     wb.save(output_path)
