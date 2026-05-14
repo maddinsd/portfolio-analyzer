@@ -1,64 +1,55 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
-from analyzer import analyze
-from fetcher import fetch_all
-from reporter import assemble_report, build_payload, call_claude, write_excel_report, write_report
+from dotenv import load_dotenv
+load_dotenv()
 
 
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        prog="portfolio-analyzer",
-        description="Fetch holdings, compute stats, and produce a markdown portfolio report.",
-    )
-    parser.add_argument("tickers", nargs="+", help="Ticker symbols, e.g. AAPL MSFT NVDA")
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Skip the Claude API call and print the JSON payload that would be sent.",
-    )
-    parser.add_argument(
-        "--reports-dir",
-        type=Path,
-        default=Path(__file__).parent / "reports",
-        help="Directory to write reports into (default: ./reports).",
-    )
-    return parser.parse_args(argv)
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="stock-analyzer")
+    parser.add_argument("ticker", help="Stock ticker symbol (e.g. AAPL)")
+    parser.add_argument("--dry-run", action="store_true", help="Skip Claude call, print payload")
+    args = parser.parse_args()
 
+    ticker = args.ticker.upper()
+    reports_dir = Path(__file__).parent / "reports"
+    reports_dir.mkdir(exist_ok=True)
 
-def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv)
-    tickers = [t.upper() for t in args.tickers]
+    from fetcher import fetch_stock_data, fetch_news
+    from analyzer import compute_stats, compute_financials
+    from reporter import build_report
+    from excel import build_excel
 
-    try:
-        data = fetch_all(tickers)
-    except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 2
+    print(f"Fetching data for {ticker}...")
+    data = fetch_stock_data(ticker)
 
-    stats = analyze(data)
-    payload = build_payload(stats)
+    print("Fetching news...")
+    company_name = data["info"].get("shortName") or data["info"].get("longName") or ticker
+    news = fetch_news(ticker, company_name)
+    if news:
+        print(f"  Found {len(news)} article(s).")
+    else:
+        print("  No articles found.")
 
-    if args.dry_run:
-        print(json.dumps(stats, indent=2))
-        print(f"\nPayload size: {len(payload)} chars", file=sys.stderr)
-        return 0
+    print("Computing statistics...")
+    stats    = compute_stats(data)
+    fin_data = compute_financials(data)
 
-    try:
-        analysis = call_claude(payload)
-    except RuntimeError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 3
+    md_path = reports_dir / f"{ticker}.md"
+    xl_path = reports_dir / f"{ticker}.xlsx"
 
-    report = assemble_report(stats, analysis)
-    md_path   = write_report(report, args.reports_dir)
-    xlsx_path = write_excel_report(stats, analysis, args.reports_dir)
-    print(f"Report written: {md_path}")
-    print(f"Report written: {xlsx_path}")
+    print("Generating analysis...")
+    markdown, news_sentiment = build_report(ticker, stats, fin_data, news, dry_run=args.dry_run)
+    md_path.write_text(markdown, encoding="utf-8")
+    print(f"Saved: {md_path}")
+
+    print("Building Excel report...")
+    build_excel(ticker, stats, fin_data, data["price_history"], data["sp500_history"],
+                markdown, news_sentiment, str(xl_path))
+    print(f"Saved: {xl_path}")
     return 0
 
 
