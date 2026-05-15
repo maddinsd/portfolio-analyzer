@@ -29,6 +29,10 @@ Read ONLY the file listed. Never open additional files for a single-file task.
 | LBO data fetch | `lbo/lbo_fetcher.py` | `fetch_lbo_inputs(ticker) -> LBOInputs`. FMP for IS/BS/CF (with yfinance fallback for totalRevenue/ebitda/capex when FMP 403). Returns `LBOInputs` dataclass. TLB rate: min(8.5%, SOFR+300bps). |
 | LBO calculations: transaction, debt schedule, 3-statements, returns, sensitivity | `lbo/lbo_engine.py` | `LBOAssumptions` dataclass + 5 builder functions. Two-pass debt schedule (1st pass no sweep → 2nd pass with FCF sweep). Goodwill as BS plug (equity+debt−cash−ppe−ar). Newton-Raphson IRR. 5×5 sensitivity tables. |
 | LBO Excel output (9-tab workbook) | `lbo/lbo_excel.py` | `build_lbo_excel(data, output_path)`. Tabs: Cover, Assumptions, Transaction, IS, BS, CF, Debt Schedule, Returns, Sensitivity. Color: blue inputs `0000FF`, black formulas `000000`. IRR/MOIC color-coded: green≥20%/2.5x, yellow 15-20%/2.0-2.5x, red below. |
+| M&A data layer | `ma/ma_fetcher.py` | `fetch_ma_data(ticker) -> MACompanyData`. Imports from `lbo.lbo_fetcher` — NEVER rewrite fetching. Adds: EPS, P/E, net_income, 52wk range, analyst target, book equity, credit proxy. |
+| M&A engine: transaction, synergies, pro forma, sensitivity | `ma/ma_engine.py` | `build_transaction()`, `build_synergies()`, `build_pro_forma()`, `build_sensitivity()`, `compute_breakeven()`. EPS math: pf_ni_gaap / pf_shares. Cash EPS adds back intangibles amort. Break-even via binary search. 5×5 sensitivity center = base case. |
+| M&A Excel output (8-tab workbook) | `ma/ma_excel.py` | `build_ma_excel(acq, tgt, tx, syn, pf, sens, be_gaap, be_cash, output_path)`. Tabs: Cover, Assumptions, Transaction, Acquirer, Target, Pro Forma, Accretion, Sensitivity. Green=accretive, red=dilutive. |
+| M&A model CLI | `ma/ma_model.py` | Entry: `python3 ma/ma_model.py ACQUIRER TARGET [--premium PCT] [--cash-pct PCT] [--synergies M]`. Orchestrates fetcher→engine→excel. Output: `ma/outputs/ACQ_acquires_TGT_YYYYMMDD.xlsx`. |
 | Adding a new module | new `.py` + `main.py` + `reporter.py` + `excel.py` | Follow pattern in ROADMAP section exactly |
 
 **Automation directory (`automation/`):** Standalone scheduled tools — do NOT modify main pipeline. `watchlist.json` (tickers + thresholds), `common.py` (shared utils: quotes, notifications, headlines), `morning_briefing.py` (7am daily briefing → `briefings/`), `notification_tool.py` (hourly market alerts → `.alert_cache.json`), `ic_memo.py` (on-demand IC memo → `ic_memos/`), `earnings_calendar.py` (earnings tracking + previews → `calendars/`). Phone notifications via ntfy.sh topic `sam-madding-finance-alerts`. Schedules: `morning-market-briefing` (`0 11 * * 1-5`), `market-alert-monitor` (`0 13-20 * * 1-5`), `earnings-calendar-monitor` (`30 11 * * 1-5`).
@@ -60,6 +64,13 @@ python3 automation/morning_briefing.py
 python3 automation/notification_tool.py
 python3 automation/earnings_calendar.py
 python3 automation/ic_memo.py AAPL --recommendation BUY --conviction HIGH
+
+# M&A merger model (standalone)
+python3 ma/ma_model.py MSFT GOOGL --premium 25 --cash-pct 60 --synergies 3000
+python3 ma/ma_model.py ACQUIRER TARGET  # 30% premium, 50% cash, bottom-up synergies
+
+# Syntax check M&A files
+python3 -c "import ast; [ast.parse(open(f).read()) for f in ['ma/ma_fetcher.py','ma/ma_engine.py','ma/ma_excel.py','ma/ma_model.py']]; print('ma syntax ok')"
 
 # LBO model (standalone)
 python3 lbo/lbo_model.py AAPL --entry-multiple 8 --hold-years 5 --debt-pct 0.60
@@ -125,7 +136,9 @@ Non-negotiable. Never relax these.
 
 **Phase 7: Complete.** `lbo/` directory: 9-tab Goldman-quality LBO model. Fetcher (FMP+yfinance fallback), engine (debt schedule, 3-statements, returns, sensitivity), Excel output. Standalone — does not touch main pipeline. Output: `lbo/outputs/TICKER_YYYYMMDD_lbo.xlsx`.
 
-**Phase 8 (next):**
+**Phase 8: Complete.** `ma/` directory: 8-tab Goldman-quality M&A merger model. Fetcher wraps lbo_fetcher, engine builds transaction/synergies/pro forma/sensitivity, Excel output. CLI: `python3 ma/ma_model.py ACQUIRER TARGET`. Output: `ma/outputs/ACQ_acquires_TGT_YYYYMMDD.xlsx`.
+
+**Phase 9 (next):**
 - `briefing.py` → daily news digest with Claude summary
 
 **Pattern every new module must follow (do not deviate):**
