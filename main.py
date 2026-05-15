@@ -16,7 +16,10 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true", help="Skip Claude call, print payload")
     parser.add_argument("--pitch",   action="store_true", help="Generate 12-slide PowerPoint pitch deck")
     parser.add_argument("--pdf",     action="store_true", help="Generate equity research PDF report")
-    parser.add_argument("--full",    action="store_true", help="Generate Excel + PDF + pitch deck")
+    parser.add_argument("--full",      action="store_true", help="Generate Excel + PDF + pitch deck")
+    parser.add_argument("--education", action="store_true", help="Add educational comments/notes and companion PDF")
+    parser.add_argument("--audience",  default="student",   choices=["student", "professional"],
+                        help="Education audience level (default: student)")
     args = parser.parse_args()
     if args.full:
         args.pdf   = True
@@ -213,6 +216,39 @@ def main() -> int:
             shutil.copy2(pitch_path, pitch_latest)
             print(f"Saved: {pitch_path}")
             print(f"  → {pitch_latest.name}")
+
+    if args.education:
+        from education.content_engine import run_content_engine
+        from education.excel_educator import add_excel_comments
+        from education.pptx_educator import add_ppt_notes
+        from education.pdf_educator import build_companion_pdf
+
+        audience = args.audience
+        print(f"\nRunning education layer ({audience} audience) — 3 API calls...")
+        edu_content = run_content_engine(ticker, stats, fin_data, dcf_result, audience)
+        if edu_content.get("error"):
+            print(f"  Education content failed: {edu_content['error']}")
+        else:
+            # Add Excel comments (in place — never regenerates the workbook)
+            n_comments = add_excel_comments(str(xl_path), edu_content["excel_comments"], audience)
+            shutil.copy2(xl_path, xl_latest)
+            print(f"  Excel: {n_comments} comments added → {xl_path.name}")
+
+            # Add PPT notes if pitch deck was generated this run
+            if args.pitch and not pitch_result.get("error"):
+                n_slides = add_ppt_notes(str(pitch_path), edu_content["ppt_notes"])
+                shutil.copy2(pitch_path, pitch_latest)
+                print(f"  PowerPoint: {n_slides} slides annotated → {pitch_path.name}")
+
+            # Companion PDF
+            edu_pdf_path   = ticker_dir / f"{stem}_education_{audience}.pdf"
+            edu_pdf_latest = ticker_dir / f"{ticker}_latest_education_{audience}.pdf"
+            pdf_res = build_companion_pdf(ticker, edu_content, str(edu_pdf_path), audience)
+            if pdf_res.get("error"):
+                print(f"  Companion PDF failed: {pdf_res['error']}")
+            else:
+                shutil.copy2(edu_pdf_path, edu_pdf_latest)
+                print(f"  Companion PDF saved → {edu_pdf_path.name}")
 
     return 0
 

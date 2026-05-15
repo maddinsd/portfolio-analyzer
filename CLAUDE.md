@@ -33,6 +33,7 @@ Read ONLY the file listed. Never open additional files for a single-file task.
 | M&A engine: transaction, synergies, pro forma, sensitivity | `ma/ma_engine.py` | `build_transaction()`, `build_synergies()`, `build_pro_forma()`, `build_sensitivity()`, `compute_breakeven()`. EPS math: pf_ni_gaap / pf_shares. Cash EPS adds back intangibles amort. Break-even via binary search. 5×5 sensitivity center = base case. |
 | M&A Excel output (8-tab workbook) | `ma/ma_excel.py` | `build_ma_excel(acq, tgt, tx, syn, pf, sens, be_gaap, be_cash, output_path)`. Tabs: Cover, Assumptions, Transaction, Acquirer, Target, Pro Forma, Accretion, Sensitivity. Green=accretive, red=dilutive. |
 | M&A model CLI | `ma/ma_model.py` | Entry: `python3 ma/ma_model.py ACQUIRER TARGET [--premium PCT] [--cash-pct PCT] [--synergies M]`. Orchestrates fetcher→engine→excel. Output: `ma/outputs/ACQ_acquires_TGT_YYYYMMDD.xlsx`. |
+| Education layer: 3 API calls → Excel comments + PPT notes + companion PDF | `education/` dir | `content_engine.py`: exactly 3 Sonnet calls (Excel comments JSON, PPT notes JSON, PDF text). `excel_educator.py`: `add_excel_comments(xlsx, comments)` — header text matching, never hardcoded addresses. `pptx_educator.py`: `add_ppt_notes(pptx, notes)` — adds to existing slides. `pdf_educator.py`: `build_companion_pdf(ticker, content, path)` — 12-section guide + 40-term glossary via reportlab. Triggered by `--education` flag; `--audience student\|professional` controls tone. |
 | Adding a new module | new `.py` + `main.py` + `reporter.py` + `excel.py` | Follow pattern in ROADMAP section exactly |
 
 **Automation directory (`automation/`):** Standalone scheduled tools — do NOT modify main pipeline. `watchlist.json` (tickers + thresholds), `common.py` (shared utils: quotes, notifications, headlines), `morning_briefing.py` (7am daily briefing → `briefings/`), `notification_tool.py` (hourly market alerts → `.alert_cache.json`), `ic_memo.py` (on-demand IC memo → `ic_memos/`), `earnings_calendar.py` (earnings tracking + previews → `calendars/`). Phone notifications via ntfy.sh topic `sam-madding-finance-alerts`. Schedules: `morning-market-briefing` (`0 11 * * 1-5`), `market-alert-monitor` (`0 13-20 * * 1-5`), `earnings-calendar-monitor` (`30 11 * * 1-5`).
@@ -57,7 +58,11 @@ python3 main.py AAPL --full
 python3 main.py AAPL --dry-run --pdf
 
 # Syntax check all modules
-python3 -c "import ast; [ast.parse(open(f).read()) for f in ['main.py','fetcher.py','analyzer.py','reporter.py','excel.py','dcf.py','research.py','competitive.py','analyst_coverage.py','transcript_parser.py','pitch.py','report_pdf.py','sec_parser.py','insider_tracker.py','automation/common.py','automation/morning_briefing.py','automation/notification_tool.py','automation/ic_memo.py','automation/earnings_calendar.py']]; print('syntax ok')"
+python3 -c "import ast; [ast.parse(open(f).read()) for f in ['main.py','fetcher.py','analyzer.py','reporter.py','excel.py','dcf.py','research.py','competitive.py','analyst_coverage.py','transcript_parser.py','pitch.py','report_pdf.py','sec_parser.py','insider_tracker.py','automation/common.py','automation/morning_briefing.py','automation/notification_tool.py','automation/ic_memo.py','automation/earnings_calendar.py','education/content_engine.py','education/excel_educator.py','education/pptx_educator.py','education/pdf_educator.py']]; print('syntax ok')"
+
+# Education layer (costs 3 Sonnet API calls)
+python3 main.py AAPL --education --audience student
+python3 main.py AAPL --full --education --audience professional   # all outputs + education
 
 # Phase 6 automation tools (run manually to test)
 python3 automation/morning_briefing.py
@@ -138,7 +143,9 @@ Non-negotiable. Never relax these.
 
 **Phase 8: Complete.** `ma/` directory: 8-tab Goldman-quality M&A merger model. Fetcher wraps lbo_fetcher, engine builds transaction/synergies/pro forma/sensitivity, Excel output. CLI: `python3 ma/ma_model.py ACQUIRER TARGET`. Output: `ma/outputs/ACQ_acquires_TGT_YYYYMMDD.xlsx`.
 
-**Phase 9 (next):**
+**Phase 9: Complete.** `education/` directory: 3-Sonnet-call content engine, Excel cell comments (header text matching), PowerPoint speaker notes, companion PDF (12-section guide + 40-term glossary). `--education` flag + `--audience student|professional`. Adds to existing outputs — never regenerates.
+
+**Phase 10 (next):**
 - `briefing.py` → daily news digest with Claude summary
 
 **Pattern every new module must follow (do not deviate):**
@@ -171,6 +178,7 @@ Non-negotiable. Never relax these.
 - **FMP insider-trading endpoints are 403 (legacy plan)** — `insider_tracker.py` uses EDGAR Form 4 XML exclusively.
 - **Never read more than one file to answer a formatting question** — the answer is always in `excel.py`.
 - **Never skip `--dry-run` as the first test of any change** — always confirm the pipeline runs before spending API tokens.
+- **Never exceed 3 Claude API calls in the education layer** — all content is generated in `education/content_engine.py` in exactly 3 Sonnet calls. Never add a 4th. Never use Haiku for education output.
 
 ## 8. SELF-UPDATE INSTRUCTIONS
 
