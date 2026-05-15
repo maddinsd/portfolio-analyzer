@@ -10,10 +10,10 @@ Read ONLY the file listed. Never open additional files for a single-file task.
 
 | Task | File | Key identifiers |
 |---|---|---|
-| CLI args, pipeline order, module integration | `main.py` | `main()`, lazy imports, `n_sheets` counter, timestamped output paths |
+| CLI args, pipeline order, module integration | `main.py` | `main()`, lazy imports, `n_sheets` counter, timestamped output paths. Uses `ThreadPoolExecutor(max_workers=5)` to run competitive, analyst_coverage, transcript_parser, sec_parser, and insider_tracker in parallel. |
 | yfinance + FMP data fetch | `fetcher.py` | `fetch_stock_data()`, `fetch_news()`, `INFO_FIELDS` line 12. FMP: `_fmp_get()`, `_fmp_to_income_df()`. FMP owns: income-statement (primary), profile (additive: fmp_ceo/employees/city/state/exchange/ipo_date), quote (additive: fmp_change_pct). yfinance owns: price history, beta, S&P 500, balance sheet, cashflow, all valuation fields. FMP calls fire in parallel (ThreadPoolExecutor, max_workers=5), timeout=10s each, silent fallback to yfinance on failure. |
 | Returns, volatility, margins, ratios, financials | `analyzer.py` (258 lines) | `compute_stats()`, `compute_financials()`. All monetary values in **millions**. |
-| Claude prompt, payload assembly, markdown, sentiment | `reporter.py` | `build_report()`, `_build_payload()`, `ANALYSIS_STRUCTURE` (14 sections). Accepts `transcript_result` + `sec_result` params; adds `transcript` key (streak, beats, tone, score, surp, next) and `edgar` key (10k/10q dates, tone, top 3 risks, mda snippet) to payload. |
+| Claude prompt, payload assembly, markdown, sentiment | `reporter.py` | `build_report()`, `_build_payload()`, `ANALYSIS_STRUCTURE` (14 sections). Accepts `transcript_result` + `sec_result` + `insider_result` params. Payload: `edgar` key (10k/10q dates, tone, top 3 risks, mda snippet), `transcript` key (streak, beats, tone, score, surp, next), `insider` key (signal, score, bought/sold, cluster, top_tx). `tgt`/`nAn` omitted when `cov` present (duplicates). `rel` removed (computable). `dcf.px` removed (duplicates `px`). |
 | Any Excel: sheets, charts, colors, formatting | `excel.py` | `build_excel()`, design constants top-of-file. Accepts `transcript_result` + `sec_result` params; calls `_build_transcript_sheet()` and `_build_sec_sheet()`. |
 | DCF model, WACC, sensitivity table | `dcf.py` | `run_dcf()`. Constants: RF=4.5, ERP=5.5, TG=2.5, N=5 |
 | Research agents: thesis, comps, earnings | `research.py` (195 lines) | `run_research_pipeline()`. Model: haiku-4-5-20251001, timeout=60s |
