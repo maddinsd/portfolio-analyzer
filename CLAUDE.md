@@ -24,7 +24,10 @@ Read ONLY the file listed. Never open additional files for a single-file task.
 | Earnings beat/miss history, tone score | `transcript_parser.py` | `run_transcript_parser(ticker, stats, fin_data)`. yfinance `earnings_dates` → 8Q EPS beat/miss. FMP `income-statement` (limit=5) → quarterly revenue actuals. Algorithmic tone score (−1 to +1). No API calls. Returns beat_miss_history, beat_streak, miss_streak, beat_count, tone_score, tone_label, guidance_signals, next_earnings_date. |
 | SEC EDGAR filings: 10-K risk factors, MD&A tone, business overview | `sec_parser.py` | `run_sec_parser(ticker, stats, fin_data)`. No API key — requires `User-Agent` header + ≥150ms delay. CIK lookup via `company_tickers.json`; filings via `submissions/CIK{10}.json`; HTML via Archives URL. Extracts Item 1 (business), Item 1A (top 5 risks by length), Item 7 (MD&A summary + tone). Algorithmic only — no Claude calls. Payload key: `"edgar"` (NOT `"sec"` — that key is taken by sector). Returns cik, latest_10k_date, latest_10q_date, filing_url_10k, filing_url_10q, filing_history, top_risks, mda_summary, business_summary, tone_signals. |
 | Insider transactions: Form 4 buy/sell signals, conviction scoring | `insider_tracker.py` | `run_insider_tracker(ticker, stats, fin_data)`. EDGAR Form 4 XML via `submissions/CIK{10}.json` + Archives URL. KEEP codes: P (open market buy), S (open market sale). EXCLUDE: A/M/F/G/D/C/I/V. 10b5-1 flag from `aff10b5One` XML field — excluded from signal scoring. Conviction score 1.0–10.0 (base 5.0 ± CEO/CFO/Director buy bonuses + cluster bonus ± CEO sell/multi-director sell penalties). Returns transactions_90d, net_signal_90d, total_bought/sold_90d, unique_buyers/sellers_90d, cluster_signal, conviction_score/label, monthly_net_12m, top_insiders. Payload key: `"insider"`. |
+| Phase 6 automation tools (standalone, no pipeline changes) | `automation/` dir | See automation section below |
 | Adding a new module | new `.py` + `main.py` + `reporter.py` + `excel.py` | Follow pattern in ROADMAP section exactly |
+
+**Automation directory (`automation/`):** Standalone scheduled tools — do NOT modify main pipeline. `watchlist.json` (tickers + thresholds), `common.py` (shared utils: quotes, notifications, headlines), `morning_briefing.py` (7am daily briefing → `briefings/`), `notification_tool.py` (hourly market alerts → `.alert_cache.json`), `ic_memo.py` (on-demand IC memo → `ic_memos/`), `earnings_calendar.py` (earnings tracking + previews → `calendars/`). Phone notifications via ntfy.sh topic `sam-madding-finance-alerts`. Schedules: `morning-market-briefing` (`0 11 * * 1-5`), `market-alert-monitor` (`0 13-20 * * 1-5`), `earnings-calendar-monitor` (`30 11 * * 1-5`).
 
 **Current Excel sheets (17):** Snapshot, Price Chart, Analysis, Bull vs Bear, Income Statement, Balance Sheet, Cash Flow, News & Sentiment, DCF Model, Investment Thesis, Comps Analysis, Earnings Preview, Competitive Analysis, Analyst Coverage, Earnings & Transcripts, SEC Filings, Insider Transactions.
 
@@ -46,7 +49,13 @@ python3 main.py AAPL --full
 python3 main.py AAPL --dry-run --pdf
 
 # Syntax check all modules
-python3 -c "import ast; [ast.parse(open(f).read()) for f in ['main.py','fetcher.py','analyzer.py','reporter.py','excel.py','dcf.py','research.py','competitive.py','analyst_coverage.py','transcript_parser.py','pitch.py','report_pdf.py','sec_parser.py','insider_tracker.py']]; print('syntax ok')"
+python3 -c "import ast; [ast.parse(open(f).read()) for f in ['main.py','fetcher.py','analyzer.py','reporter.py','excel.py','dcf.py','research.py','competitive.py','analyst_coverage.py','transcript_parser.py','pitch.py','report_pdf.py','sec_parser.py','insider_tracker.py','automation/common.py','automation/morning_briefing.py','automation/notification_tool.py','automation/ic_memo.py','automation/earnings_calendar.py']]; print('syntax ok')"
+
+# Phase 6 automation tools (run manually to test)
+python3 automation/morning_briefing.py
+python3 automation/notification_tool.py
+python3 automation/earnings_calendar.py
+python3 automation/ic_memo.py AAPL --recommendation BUY --conviction HIGH
 
 # Commit and push
 git add -p && git commit -m "message" && git push
@@ -101,8 +110,10 @@ Non-negotiable. Never relax these.
 - `sec_parser.py` — SEC EDGAR 10-K/10-Q parser: risk factors, MD&A tone, business overview (sheet 16)
 - `insider_tracker.py` — Form 4 insider transactions: buy/sell signals, conviction scoring (sheet 17)
 
-**Phase 6 (next):**
-- `briefing.py` → daily news digest
+**Phase 6: Complete.** `automation/` directory: morning briefing (7am daily), market alert monitor (hourly during market hours), IC memo generator (on-demand), earnings calendar (daily + weekly). Three Claude Code routines created. Phone notifications via ntfy.sh.
+
+**Phase 7 (next):**
+- `briefing.py` → daily news digest with Claude summary
 
 **Pattern every new module must follow (do not deviate):**
 1. Standalone `.py` file, single responsibility, no cross-imports between modules.

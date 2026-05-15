@@ -1,0 +1,10 @@
+{
+  "tickers": ["AAPL", "MSFT", "NVDA", "GOOGL", "META", "JPM", "GS", "BAC"],
+  "sectors_to_watch": ["Technology", "Financials", "Healthcare"],
+  "alert_thresholds": {
+    "price_move_pct": 3.0,
+    "insider_buy_min_usd": 1000000,
+    "earnings_surprise_pct": 5.0,
+    "analyst_target_change_pct": 10.0
+  }
+}
