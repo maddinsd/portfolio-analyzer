@@ -2625,6 +2625,199 @@ def _build_transcript_sheet(wb, transcript_result: dict | None, ticker: str) -> 
         ws.column_dimensions[col].width = w
 
 
+def _build_sec_sheet(wb, sec_result: dict | None, ticker: str) -> None:
+    if not sec_result:
+        return
+
+    N  = 9
+    ws = wb.create_sheet("SEC Filings")
+
+    _fin_title(ws, 1, f"SEC FILING ANALYSIS  —  {ticker}", N)
+
+    if sec_result.get("error"):
+        ws.merge_cells(f"A3:{get_column_letter(N)}3")
+        c       = ws.cell(row=3, column=1)
+        c.value = f"Data unavailable: {sec_result['error']}"
+        c.font  = _f(10, color="999999")
+        return
+
+    k_date   = sec_result.get("latest_10k_date") or "—"
+    q_date   = sec_result.get("latest_10q_date") or "—"
+    k_url    = sec_result.get("filing_url_10k")
+    q_url    = sec_result.get("filing_url_10q")
+    cik      = sec_result.get("cik") or "—"
+    tone     = sec_result.get("tone_signals", {}).get("tone_label", "—")
+    pos_n    = sec_result.get("tone_signals", {}).get("positive_count", 0)
+    cau_n    = sec_result.get("tone_signals", {}).get("cautious_count", 0)
+    risks    = sec_result.get("top_risks", [])
+    mda      = sec_result.get("mda_summary", "")
+    biz      = sec_result.get("business_summary", "")
+    history  = sec_result.get("filing_history", [])
+
+    # Subtitle
+    ws.merge_cells(f"A2:{get_column_letter(N)}2")
+    sub           = ws["A2"]
+    sub.value     = (f"10-K: {k_date}  ·  10-Q: {q_date}  ·  "
+                     f"CIK: {cik}  ·  MD&A Tone: {tone}")
+    sub.font      = _f(9, color="5A6B7B")
+    sub.fill      = _fill(_SUBTITLE)
+    sub.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[2].height = 16
+
+    row = 4
+
+    # ── Section 1: Filing Summary ─────────────────────────────────────────────
+    _fin_subhdr(ws, row, "FILING SUMMARY", N); row += 1
+
+    _TONE_COLOR = {
+        "Positive": (_GRN_BG, _GRN_FG),
+        "Cautious":  (_RED_BG, _RED_FG),
+        "Neutral":  (_LBL_BG, "000000"),
+    }
+    tone_bg, tone_fg = _TONE_COLOR.get(tone, (_LBL_BG, "000000"))
+
+    def _kv2(r, key, val, url=None, tone_row=False):
+        alt = (r % 2 == 0)
+        bg_k = _LBL_ALT if alt else _LBL_BG
+        bg_v = tone_bg if tone_row else (_ROW_ALT if alt else _WHITE)
+        fg_v = tone_fg if tone_row else "000000"
+
+        ws.merge_cells(f"A{r}:C{r}")
+        k           = ws.cell(row=r, column=1)
+        k.value     = key
+        k.font      = _f(9, bold=True)
+        k.fill      = _fill(bg_k)
+        k.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+        k.border    = _BORDER
+
+        ws.merge_cells(f"D{r}:{get_column_letter(N)}{r}")
+        v           = ws.cell(row=r, column=4)
+        v.value     = val
+        v.font      = _f(9, bold=tone_row, color=fg_v)
+        v.fill      = _fill(bg_v)
+        v.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+        v.border    = _BORDER
+        ws.row_dimensions[r].height = 18
+        if url:
+            v.hyperlink = url
+            v.font = _f(9, color="0563C1")
+
+    _kv2(row, "Latest 10-K Date",     k_date, url=k_url); row += 1
+    _kv2(row, "Latest 10-Q Date",     q_date, url=q_url); row += 1
+    _kv2(row, "CIK Number",           cik);               row += 1
+    _kv2(row, "MD&A Tone",
+         f"{tone}  (positive signals: {pos_n}, cautious: {cau_n})",
+         tone_row=True); row += 1
+
+    if biz:
+        row += 1
+        _fin_subhdr(ws, row, "BUSINESS OVERVIEW (Item 1)", N); row += 1
+        ws.merge_cells(f"A{row}:{get_column_letter(N)}{row}")
+        c           = ws.cell(row=row, column=1)
+        c.value     = biz[:350]
+        c.font      = _f(9)
+        c.fill      = _fill(_WHITE)
+        c.alignment = Alignment(horizontal="left", vertical="top",
+                                indent=1, wrap_text=True)
+        c.border    = _BORDER
+        ws.row_dimensions[row].height = 52
+        row += 1
+
+    if mda:
+        row += 1
+        _fin_subhdr(ws, row, "MD&A HIGHLIGHTS (Item 7)", N); row += 1
+        ws.merge_cells(f"A{row}:{get_column_letter(N)}{row}")
+        c           = ws.cell(row=row, column=1)
+        c.value     = mda[:500]
+        c.font      = _f(9)
+        c.fill      = _fill(_ROW_ALT)
+        c.alignment = Alignment(horizontal="left", vertical="top",
+                                indent=1, wrap_text=True)
+        c.border    = _BORDER
+        ws.row_dimensions[row].height = 64
+        row += 1
+
+    row += 1
+
+    # ── Section 2: Risk Factors ───────────────────────────────────────────────
+    if risks:
+        _fin_subhdr(ws, row, "TOP RISK FACTORS (Item 1A  —  10-K)", N); row += 1
+        _fin_col_hdr(ws, row, ["#", "Category", "Risk Summary", "", "", "", "", "", ""]); row += 1
+
+        for i, r in enumerate(risks):
+            alt        = i % 2 == 1
+            bg_data    = _ROW_ALT if alt else _WHITE
+            bg_lbl     = _LBL_ALT if alt else _LBL_BG
+
+            # # cell
+            c = ws.cell(row=row, column=1)
+            c.value     = str(i + 1)
+            c.font      = _f(9, bold=True, color=_WHITE)
+            c.fill      = _fill(_NAVY)
+            c.alignment = Alignment(horizontal="center", vertical="top")
+            c.border    = _BORDER
+
+            # Category cell
+            c = ws.cell(row=row, column=2)
+            c.value     = r.get("category", "—")
+            c.font      = _f(9, bold=True)
+            c.fill      = _fill(bg_lbl)
+            c.alignment = Alignment(horizontal="left", vertical="top", indent=1)
+            c.border    = _BORDER
+
+            # Summary — spans columns 3-N
+            ws.merge_cells(f"C{row}:{get_column_letter(N)}{row}")
+            c           = ws.cell(row=row, column=3)
+            c.value     = r.get("summary", "")[:300]
+            c.font      = _f(9)
+            c.fill      = _fill(bg_data)
+            c.alignment = Alignment(horizontal="left", vertical="top",
+                                    indent=1, wrap_text=True)
+            c.border    = _BORDER
+            ws.row_dimensions[row].height = 52
+            row += 1
+
+    row += 1
+
+    # ── Section 3: Filing History ─────────────────────────────────────────────
+    if history:
+        _fin_subhdr(ws, row, "FILING HISTORY", N); row += 1
+        _fin_col_hdr(ws, row, ["Type", "Filed", "Period", "SEC EDGAR Link",
+                                "", "", "", "", ""]); row += 1
+
+        for i, h in enumerate(history[:8]):
+            alt = i % 2 == 1
+            row_data = [h.get("type","—"), h.get("filed","—"), h.get("period","—")]
+            for ci, val in enumerate(row_data):
+                c           = ws.cell(row=row, column=ci + 1)
+                c.value     = val
+                c.font      = _f(9, bold=(ci == 0))
+                c.fill      = _fill(_LBL_ALT if (ci == 0 and alt) else
+                                    _LBL_BG  if  ci == 0       else
+                                    _ROW_ALT if  alt            else _WHITE)
+                c.alignment = Alignment(horizontal="center" if ci > 0 else "left",
+                                        vertical="center")
+                c.border    = _BORDER
+
+            # Link cell — spans remaining cols
+            ws.merge_cells(f"D{row}:{get_column_letter(N)}{row}")
+            lc           = ws.cell(row=row, column=4)
+            url          = h.get("url", "")
+            lc.value     = f"View {h.get('type','—')} ({h.get('period','—')})"
+            lc.font      = _f(9, color="0563C1")
+            if url:
+                lc.hyperlink = url
+            lc.fill      = _fill(_ROW_ALT if alt else _WHITE)
+            lc.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+            lc.border    = _BORDER
+            ws.row_dimensions[row].height = 17
+            row += 1
+
+    # ── Column widths ─────────────────────────────────────────────────────────
+    for col, w in zip("ABCDEFGHI", [5, 18, 14, 14, 14, 14, 14, 14, 4]):
+        ws.column_dimensions[col].width = w
+
+
 def build_excel(ticker: str, stats: dict, fin_data: dict,
                 price_history, sp500_history, markdown: str,
                 news_sentiment: dict | None,
@@ -2633,6 +2826,7 @@ def build_excel(ticker: str, stats: dict, fin_data: dict,
                 comp_result: dict | None,
                 analyst_cov_result: dict | None,
                 transcript_result: dict | None = None,
+                sec_result: dict | None = None,
                 output_path: str = "") -> None:
     wb = openpyxl.Workbook()
     if "Sheet" in wb.sheetnames:
@@ -2653,5 +2847,6 @@ def build_excel(ticker: str, stats: dict, fin_data: dict,
     _build_competitive_sheet(wb, comp_result)
     _build_analyst_coverage_sheet(wb, analyst_cov_result, ticker)
     _build_transcript_sheet(wb, transcript_result, ticker)
+    _build_sec_sheet(wb, sec_result, ticker)
     wb.save(output_path)
     _polish_charts(output_path, ticker)

@@ -84,7 +84,8 @@ def _build_payload(stats: dict, fin_data: dict, news: list | None = None,
                    dcf_result: dict | None = None,
                    competitive: dict | None = None,
                    analyst_coverage: dict | None = None,
-                   transcript_result: dict | None = None) -> str:
+                   transcript_result: dict | None = None,
+                   sec_result: dict | None = None) -> str:
     info = stats["info"]
 
     payload: dict = {
@@ -210,6 +211,20 @@ def _build_payload(stats: dict, fin_data: dict, news: list | None = None,
             "score":  tr.get("tone_score"),
             "surp":   tr.get("last_eps_surprise"),
             "next":   tr.get("next_earnings_date"),
+        }
+
+    if sec_result and not sec_result.get("error"):
+        sr = sec_result
+        risks_compact = [
+            f"{r['category']}: {r['title'][:70]}"
+            for r in (sr.get("top_risks") or [])[:3]
+        ]
+        payload["edgar"] = {
+            "10k":   sr.get("latest_10k_date"),
+            "10q":   sr.get("latest_10q_date"),
+            "tone":  sr.get("tone_signals", {}).get("tone_label"),
+            "risks": risks_compact,
+            "mda":   (sr.get("mda_summary") or "")[:200],
         }
 
     payload_json = json.dumps(payload, separators=(",", ":"))
@@ -490,6 +505,67 @@ def _competitive_md_section(comp_result: dict, comp_assessment: dict | None) -> 
     return "\n".join(lines)
 
 
+# ── SEC filing markdown ───────────────────────────────────────────────────────
+
+def _sec_md_section(result: dict | None) -> str:
+    if not result or result.get("error"):
+        return "---\n\n## SEC Filings\n\n*SEC filing data unavailable.*\n"
+
+    ticker   = result.get("ticker", "")
+    k_date   = result.get("latest_10k_date") or "—"
+    q_date   = result.get("latest_10q_date") or "—"
+    k_url    = result.get("filing_url_10k")
+    q_url    = result.get("filing_url_10q")
+    tone     = result.get("tone_signals", {}).get("tone_label", "—")
+    pos_n    = result.get("tone_signals", {}).get("positive_count", 0)
+    cau_n    = result.get("tone_signals", {}).get("cautious_count", 0)
+    risks    = result.get("top_risks", [])
+    mda      = result.get("mda_summary", "")
+    history  = result.get("filing_history", [])
+
+    k_link = f"[View 10-K]({k_url})" if k_url else k_date
+    q_link = f"[View 10-Q]({q_url})" if q_url else q_date
+
+    lines = [
+        "---", "",
+        "## SEC Filings", "",
+        f"**Latest 10-K:** {k_date} {k_link}  |  **Latest 10-Q:** {q_date} {q_link}",
+        f"**MD&A Tone: {tone}** (positive signals: {pos_n}, cautious: {cau_n})",
+        "",
+    ]
+
+    if mda:
+        lines += [f"> {mda[:400]}", ""]
+
+    if risks:
+        lines += [
+            "### Top Risk Factors (10-K)", "",
+            "| # | Category | Risk Summary |",
+            "|---|---|---|",
+        ]
+        for i, r in enumerate(risks, 1):
+            summary = r.get("summary", "")[:180]
+            lines.append(f"| {i} | {r.get('category','—')} | {summary} |")
+        lines.append("")
+
+    if history:
+        lines += [
+            "### Filing History", "",
+            "| Type | Filed | Period | Link |",
+            "|---|---|---|---|",
+        ]
+        for h in history[:6]:
+            url   = h.get("url", "")
+            label = f"[SEC EDGAR]({url})" if url else "—"
+            lines.append(
+                f"| {h.get('type','—')} | {h.get('filed','—')} "
+                f"| {h.get('period','—')} | {label} |"
+            )
+        lines.append("")
+
+    return "\n".join(lines)
+
+
 # ── Transcript / earnings beat-miss markdown ─────────────────────────────────
 
 def _transcript_md_section(result: dict | None) -> str:
@@ -654,9 +730,10 @@ def build_report(ticker: str, stats: dict, fin_data: dict,
                  research: dict | None = None, competitive: dict | None = None,
                  analyst_coverage: dict | None = None,
                  transcript_result: dict | None = None,
+                 sec_result: dict | None = None,
                  dry_run: bool = False) -> tuple[str, dict | None, dict | None, dict | None]:
     payload_json = _build_payload(stats, fin_data, news, dcf_result, competitive,
-                                  analyst_coverage, transcript_result)
+                                  analyst_coverage, transcript_result, sec_result)
 
     if dry_run:
         print("=== DRY RUN: Claude payload ===")
@@ -839,6 +916,7 @@ def build_report(ticker: str, stats: dict, fin_data: dict,
     comp_md       = "\n" + _competitive_md_section(competitive, comp_assessment) if competitive else ""
     cov_md        = "\n" + _analyst_coverage_md_section(analyst_coverage, cov_assessment) if analyst_coverage else ""
     transcript_md = "\n" + _transcript_md_section(transcript_result) if transcript_result else ""
+    sec_md        = "\n" + _sec_md_section(sec_result)              if sec_result        else ""
     markdown = (
         f"# {ticker} Stock Analysis — {date.today()}\n\n"
         f"{analysis}\n\n"
@@ -848,5 +926,6 @@ def build_report(ticker: str, stats: dict, fin_data: dict,
         f"{comp_md}"
         f"{cov_md}"
         f"{transcript_md}"
+        f"{sec_md}"
     )
     return markdown, sent_data, comp_assessment, cov_assessment

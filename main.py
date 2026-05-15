@@ -47,6 +47,7 @@ def main() -> int:
     from competitive import run_competitive
     from analyst_coverage import run_analyst_coverage
     from transcript_parser import run_transcript_parser
+    from sec_parser import run_sec_parser
     from pitch import run_pitch
     from report_pdf import run_pdf
 
@@ -106,10 +107,20 @@ def main() -> int:
         tone   = transcript_result.get("tone_label", "—")
         print(f"  {beats}/{total} beats · streak: {streak} · tone: {tone}")
 
+    print("Fetching SEC filings (EDGAR)...")
+    sec_result = run_sec_parser(ticker, stats, fin_data)
+    if sec_result.get("error"):
+        print(f"  SEC: {sec_result['error']}")
+    else:
+        n_risks  = len(sec_result.get("top_risks", []))
+        sec_tone = sec_result.get("tone_signals", {}).get("tone_label", "—")
+        k_date   = sec_result.get("latest_10k_date", "—")
+        print(f"  10-K: {k_date} · {n_risks} risks extracted · MD&A tone: {sec_tone}")
+
     print("Generating analysis...")
     markdown, news_sentiment, comp_assessment, cov_assessment = build_report(
         ticker, stats, fin_data, news, dcf_result, research, comp_result,
-        analyst_cov_result, transcript_result, dry_run=args.dry_run
+        analyst_cov_result, transcript_result, sec_result, dry_run=args.dry_run
     )
     if comp_assessment and not comp_result.get("error"):
         comp_result["claude"] = comp_assessment
@@ -131,10 +142,12 @@ def main() -> int:
         n_sheets += 1
     if transcript_result:    # sheet always created (shows error note if failed)
         n_sheets += 1
+    if sec_result:           # sheet always created (shows error note if failed)
+        n_sheets += 1
     print(f"Building Excel report ({n_sheets} sheets)...")
     build_excel(ticker, stats, fin_data, data["price_history"], data["sp500_history"],
                 markdown, news_sentiment, dcf_result, research, comp_result,
-                analyst_cov_result, transcript_result, str(xl_path))
+                analyst_cov_result, transcript_result, sec_result, str(xl_path))
     shutil.copy2(xl_path, xl_latest)
     print(f"Saved: {xl_path}")
     print(f"  → {xl_latest.name}")
