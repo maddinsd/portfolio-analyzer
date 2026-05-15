@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -15,8 +17,20 @@ def main() -> int:
     args = parser.parse_args()
 
     ticker = args.ticker.upper()
+
+    # ── Output paths ──────────────────────────────────────────────────────────
+    # Timestamped archive:  reports/AAPL/AAPL_20260514_1630.{xlsx,md}
+    # Quick-access latest:  reports/AAPL/AAPL_latest.{xlsx,md}
     reports_dir = Path(__file__).parent / "reports"
-    reports_dir.mkdir(exist_ok=True)
+    ticker_dir  = reports_dir / ticker
+    ticker_dir.mkdir(parents=True, exist_ok=True)
+
+    stamp    = datetime.now().strftime("%Y%m%d_%H%M")
+    stem     = f"{ticker}_{stamp}"
+    md_path  = ticker_dir / f"{stem}.md"
+    xl_path  = ticker_dir / f"{stem}.xlsx"
+    md_latest = ticker_dir / f"{ticker}_latest.md"
+    xl_latest = ticker_dir / f"{ticker}_latest.xlsx"
 
     from fetcher import fetch_stock_data, fetch_news
     from analyzer import compute_stats, compute_financials
@@ -62,9 +76,6 @@ def main() -> int:
         n_peers = len(comp_result.get("peers", []))
         print(f"  Found {n_peers} peers via {comp_result.get('source')}")
 
-    md_path = reports_dir / f"{ticker}.md"
-    xl_path = reports_dir / f"{ticker}.xlsx"
-
     print("Generating analysis...")
     markdown, news_sentiment, comp_assessment = build_report(
         ticker, stats, fin_data, news, dcf_result, research, comp_result,
@@ -73,7 +84,9 @@ def main() -> int:
     if comp_assessment and not comp_result.get("error"):
         comp_result["claude"] = comp_assessment
     md_path.write_text(markdown, encoding="utf-8")
+    shutil.copy2(md_path, md_latest)
     print(f"Saved: {md_path}")
+    print(f"  → {md_latest.name}")
 
     n_sheets = 9
     if dcf_result and not dcf_result.get("error"):
@@ -85,7 +98,9 @@ def main() -> int:
     print(f"Building Excel report ({n_sheets} sheets)...")
     build_excel(ticker, stats, fin_data, data["price_history"], data["sp500_history"],
                 markdown, news_sentiment, dcf_result, research, comp_result, str(xl_path))
+    shutil.copy2(xl_path, xl_latest)
     print(f"Saved: {xl_path}")
+    print(f"  → {xl_latest.name}")
     return 0
 
 

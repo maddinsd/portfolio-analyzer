@@ -1,23 +1,26 @@
 # CLAUDE.md — Portfolio Analyzer
 
 ## 1. PROJECT SUMMARY
-Professional stock analyzer CLI (`python3 main.py TICKER`). Stack: Python 3.9, yfinance, anthropic SDK (claude-sonnet-4-6), openpyxl, python-dotenv, NewsAPI. Pipeline: yfinance fetch → compute stats + DCF → Claude API analysis (Sonnet 4.6, MAX_TOKENS=4096) → 3 parallel research agents (Haiku) → markdown report + 12-sheet Goldman-formatted Excel workbook. Secrets in `.env` (ANTHROPIC_API_KEY, NEWS_API_KEY) — never committed. User is a finance student; explain financial concepts when introducing new analysis features, skip coding basics.
+Professional stock analyzer CLI (`python3 main.py TICKER`). Stack: Python 3.9, yfinance, FMP REST API, anthropic SDK (claude-sonnet-4-6), openpyxl, python-dotenv, NewsAPI, requests. Pipeline: yfinance + FMP parallel fetch → compute stats + DCF → peer competitive fetch (yfinance Sector/Industry + FMP /search-name fallback, parallel) → Claude API analysis (Sonnet 4.6, MAX_TOKENS=4096) → 3 parallel research agents → markdown report + 13-sheet Goldman-formatted Excel workbook. Secrets in `.env` (ANTHROPIC_API_KEY, NEWS_API_KEY, FMP_API_KEY) — never committed. User is a finance student; explain financial concepts when introducing new analysis features, skip coding basics.
+
+**Report output:** `reports/TICKER/TICKER_YYYYMMDD_HHMM.{xlsx,md}` (timestamped archive) + `reports/TICKER/TICKER_latest.{xlsx,md}` (always current). Ticker subfolder created automatically.
 
 ## 2. FILE MAP
 Read ONLY the file listed. Never open additional files for a single-file task.
 
 | Task | File | Key identifiers |
 |---|---|---|
-| CLI args, pipeline order, module integration | `main.py` (58 lines) | `main()`, lazy imports lines 21-26, `n_sheets` counter |
-| yfinance fields, NewsAPI, S&P 500 fetch | `fetcher.py` | `fetch_stock_data()`, `fetch_news()`, `INFO_FIELDS` line 12 |
+| CLI args, pipeline order, module integration | `main.py` | `main()`, lazy imports, `n_sheets` counter, timestamped output paths |
+| yfinance + FMP data fetch | `fetcher.py` | `fetch_stock_data()`, `fetch_news()`, `INFO_FIELDS` line 12. FMP: `_fmp_get()`, `_fmp_to_income_df()`. FMP owns: income-statement (primary), profile (additive: fmp_ceo/employees/city/state/exchange/ipo_date), quote (additive: fmp_change_pct). yfinance owns: price history, beta, S&P 500, balance sheet, cashflow, all valuation fields. FMP calls fire in parallel (ThreadPoolExecutor, max_workers=5), timeout=10s each, silent fallback to yfinance on failure. |
 | Returns, volatility, margins, ratios, financials | `analyzer.py` (258 lines) | `compute_stats()`, `compute_financials()`. All monetary values in **millions**. |
 | Claude prompt, payload assembly, markdown, sentiment | `reporter.py` (491 lines) | `build_report()`, `_build_payload()`, `ANALYSIS_STRUCTURE` (14 sections) |
 | Any Excel: sheets, charts, colors, formatting | `excel.py` (887 lines) | `build_excel()`, design constants top-of-file, `_header_style()` |
 | DCF model, WACC, sensitivity table | `dcf.py` | `run_dcf()`. Constants: RF=4.5, ERP=5.5, TG=2.5, N=5 |
 | Research agents: thesis, comps, earnings | `research.py` (195 lines) | `run_research_pipeline()`. Model: haiku-4-5-20251001, timeout=60s |
+| Competitive landscape, peer metrics, moat assessment | `competitive.py` | `run_competitive()`. yfinance Sector/Industry API requires **lowercase** names. FMP `/search-name` fires as fallback when yfinance returns 0 peers; FMP `/profile` as fallback when yfinance returns empty info for a peer. Returns target, peers, peer_medians, rankings, claude (moat assessment from reporter.py). |
 | Adding a new Phase 3/4 module | new `.py` + `main.py` + `reporter.py` + `excel.py` | Follow pattern in ROADMAP section exactly |
 
-**Current Excel sheets (12):** Snapshot, Price Chart, Analysis, Bull vs Bear, Income Statement, Balance Sheet, Cash Flow, News & Sentiment, DCF Model, Investment Thesis, Comps Analysis, Earnings Preview.
+**Current Excel sheets (13):** Snapshot, Price Chart, Analysis, Bull vs Bear, Income Statement, Balance Sheet, Cash Flow, News & Sentiment, DCF Model, Investment Thesis, Comps Analysis, Earnings Preview, Competitive Analysis.
 
 ## 3. COMMON COMMANDS
 ```bash
@@ -57,8 +60,8 @@ Non-negotiable. Never relax these.
 - Never introduce new colors or fonts. Match existing sheet style exactly when adding sheets.
 
 **API and model rules:**
-- Sonnet 4.6 (`claude-sonnet-4-6`) for main analysis in `reporter.py` only.
-- Haiku (`claude-haiku-4-5-20251001`) for research agents (`research.py`) and intent hook only.
+- Sonnet 4.6 (`claude-sonnet-4-6`) for main analysis (`reporter.py`) and research agents (`research.py`). Sonnet minimum for any analysis output — never Haiku.
+- Haiku (`claude-haiku-4-5-20251001`) for the finance intent hook classification only (`~/.claude/hooks/finance_intent.py`).
 - Never use Opus in any module — cost control.
 - MAX_TOKENS=4096 in `reporter.py`. Do not lower; truncation breaks the 14-section structure.
 - Claude payload target: ≤ 800 tokens. Verify: `python3 main.py AAPL --dry-run 2>&1 | grep -i chars`.
@@ -93,10 +96,14 @@ Non-negotiable. Never relax these.
 
 ## 7. NEVER DO
 
-- **Never commit `.env`** — live API keys. Confirmed in `.gitignore`. Verify: `git check-ignore .env`.
+- **Never commit `.env`** — live API keys (ANTHROPIC_API_KEY, NEWS_API_KEY, FMP_API_KEY). Confirmed in `.gitignore`. Verify: `git check-ignore .env`.
 - **Never use key starting `sk-ant-api03-uKs9Y6Ca`** — revoked/compromised.
 - **Never lower MAX_TOKENS below 4096** in `reporter.py` — truncates analysis sections.
-- **Never call Sonnet or Opus from `research.py`** — Haiku only. Sonnet costs 5× more per token.
+- **Never use Haiku for analysis output** — Sonnet minimum. Haiku is only for the intent hook classifier.
+- **Never expose FMP_API_KEY** in logs, print statements, or error messages — read via `os.environ.get("FMP_API_KEY")` inside functions only.
+- **Never let an FMP failure crash the pipeline** — every `_fmp_get()` call is wrapped in try/except and returns None on any error. Callers check `if result:` before using.
+- **Never add an FMP call without timeout=10** — enforced in `_fmp_get()` via `requests.get(..., timeout=10)`.
+- **Never fetch the same field from both FMP and yfinance** — clear ownership: FMP owns income-statement + profile + quote enrichment; yfinance owns everything else.
 - **Never call Claude API from a hook** — `~/.claude/hooks/finance_intent.py` uses Haiku for classification only; never for analysis or report generation.
 - **Never use `sys.exit()` inside a module** — only `main.py` and `fetcher.py` may exit the process. All other modules return error dicts.
 - **Never overwrite `~/.claude/settings.json`** — always read then merge. New keys only; never replace the file.

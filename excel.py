@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import math
+import os
 import re
+import zipfile
 from datetime import date as _date_type
 
 import openpyxl
@@ -1655,6 +1657,360 @@ def _build_competitive_sheet(wb, comp_result: dict | None) -> None:
         ws.column_dimensions[col].width = w
 
 
+# ── GS-style chart XML post-processor ────────────────────────────────────────
+# openpyxl's chart API produces minimal XML with no colours, wrong axis positions,
+# and no professional styling.  After wb.save() we open the xlsx as a zip, extract
+# the dynamic cell-reference formulas from the generated chart XML, and replace the
+# entire chart document with hand-crafted OOXML that matches Goldman Sachs style.
+
+_NS_C = "http://schemas.openxmlformats.org/drawingml/2006/chart"
+_NS_A = "http://schemas.openxmlformats.org/drawingml/2006/main"
+
+_CHART_HDR = (
+    "<?xml version='1.0' encoding='UTF-8' standalone='yes'?>\n"
+    '<chartSpace xmlns="http://schemas.openxmlformats.org/drawingml/2006/chart"'
+    ' xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"'
+    ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+)
+_CHART_FTR = "</chartSpace>"
+
+_CHART_SPACE_SPR = (
+    "<spPr>"
+    "<a:solidFill><a:srgbClr val='FFFFFF'/></a:solidFill>"
+    "<a:ln><a:noFill/></a:ln>"
+    "<a:effectLst/>"
+    "</spPr>"
+)
+
+
+def _txpr(sz: int = 900, color: str = "595959") -> str:
+    return (
+        f"<txPr><a:bodyPr/><a:lstStyle/>"
+        f"<a:p><a:pPr><a:defRPr sz='{sz}' b='0'>"
+        f"<a:solidFill><a:srgbClr val='{color}'/></a:solidFill>"
+        f"<a:latin typeface='Calibri'/>"
+        f"</a:defRPr></a:pPr></a:p></txPr>"
+    )
+
+
+def _extract_refs(xml: str) -> list[str]:
+    return re.findall(r"<f>([^<]+)</f>", xml)
+
+
+def _gs_price_chart_xml(xml_str: str, ticker: str) -> str:
+    """Full GS-style line chart: navy stock line, grey-dashed S&P, professional axes."""
+    refs    = _extract_refs(xml_str)
+    ymin_m  = re.search(r'<min val="([^"]+)"', xml_str)
+    ymax_m  = re.search(r'<max val="([^"]+)"', xml_str)
+    skip_m  = re.search(r'tickLblSkip val="([^"]+)"', xml_str)
+
+    s1_cat  = refs[1] if len(refs) > 1 else f"'Price Chart'!$A$2:$A$126"
+    s1_val  = refs[2] if len(refs) > 2 else f"'Price Chart'!$B$2:$B$126"
+    s2_val  = refs[5] if len(refs) > 5 else f"'Price Chart'!$C$2:$C$126"
+
+    ymin    = float(ymin_m.group(1)) if ymin_m else 85.0
+    ymax    = float(ymax_m.group(1)) if ymax_m else 120.0
+    skip    = skip_m.group(1) if skip_m else "21"
+
+    title   = f"{ticker} vs. S&amp;P 500  —  6-Month Indexed Performance (Base = 100)"
+    s_sheet = s1_cat.split("!")[0]  # e.g. 'Price Chart'
+
+    ser1 = (
+        "<ser>"
+        "<idx val='0'/><order val='0'/>"
+        f"<tx><strRef><f>{s_sheet}!B1</f></strRef></tx>"
+        "<spPr>"
+        "<a:ln w='25400' cap='rnd'>"
+        "<a:solidFill><a:srgbClr val='003366'/></a:solidFill>"
+        "<a:prstDash val='solid'/>"
+        "</a:ln>"
+        "</spPr>"
+        "<marker><symbol val='none'/></marker>"
+        f"<cat><strRef><f>{s1_cat}</f></strRef></cat>"
+        f"<val><numRef><f>{s1_val}</f></numRef></val>"
+        "<smooth val='1'/>"
+        "</ser>"
+    )
+    ser2 = (
+        "<ser>"
+        "<idx val='1'/><order val='1'/>"
+        f"<tx><strRef><f>{s_sheet}!C1</f></strRef></tx>"
+        "<spPr>"
+        "<a:ln w='15875' cap='rnd'>"
+        "<a:solidFill><a:srgbClr val='7F7F7F'/></a:solidFill>"
+        "<a:prstDash val='sysDash'/>"
+        "</a:ln>"
+        "</spPr>"
+        "<marker><symbol val='none'/></marker>"
+        f"<cat><strRef><f>{s1_cat}</f></strRef></cat>"
+        f"<val><numRef><f>{s2_val}</f></numRef></val>"
+        "<smooth val='1'/>"
+        "</ser>"
+    )
+    cat_ax = (
+        "<catAx>"
+        "<axId val='10'/>"
+        "<scaling><orientation val='minMax'/></scaling>"
+        "<delete val='0'/>"
+        "<axPos val='b'/>"
+        "<spPr><a:ln w='9525'>"
+        "<a:solidFill><a:srgbClr val='D0D0D0'/></a:solidFill>"
+        "</a:ln></spPr>"
+        + _txpr(900, "595959") +
+        "<majorTickMark val='none'/>"
+        "<minorTickMark val='none'/>"
+        "<tickLblPos val='low'/>"
+        "<crossAx val='100'/>"
+        f"<tickLblSkip val='{skip}'/>"
+        "<noMultiLvlLbl val='1'/>"
+        "</catAx>"
+    )
+    val_ax = (
+        "<valAx>"
+        "<axId val='100'/>"
+        "<scaling>"
+        "<orientation val='minMax'/>"
+        f"<min val='{ymin:.2f}'/>"
+        f"<max val='{ymax:.2f}'/>"
+        "</scaling>"
+        "<delete val='0'/>"
+        "<axPos val='l'/>"
+        "<majorGridlines>"
+        "<spPr><a:ln w='9525' cmpd='sng'>"
+        "<a:solidFill><a:srgbClr val='E8E8E8'/></a:solidFill>"
+        "<a:prstDash val='solid'/>"
+        "</a:ln></spPr>"
+        "</majorGridlines>"
+        "<spPr><a:ln><a:noFill/></a:ln></spPr>"
+        + _txpr(900, "595959") +
+        "<numFmt formatCode='0.0' sourceLinked='0'/>"
+        "<majorTickMark val='none'/>"
+        "<minorTickMark val='none'/>"
+        "<crossAx val='10'/>"
+        "</valAx>"
+    )
+    legend = (
+        "<legend>"
+        "<legendPos val='b'/>"
+        "<overlay val='0'/>"
+        "<spPr><a:noFill/><a:ln><a:noFill/></a:ln></spPr>"
+        + _txpr(900, "595959") +
+        "</legend>"
+    )
+    title_xml = (
+        "<title>"
+        "<tx><rich>"
+        "<a:bodyPr/><a:lstStyle/>"
+        "<a:p><a:pPr>"
+        "<a:defRPr b='1' sz='1100'>"
+        "<a:solidFill><a:srgbClr val='003366'/></a:solidFill>"
+        "<a:latin typeface='Calibri'/>"
+        "</a:defRPr></a:pPr>"
+        "<a:r>"
+        "<a:rPr lang='en-US' b='1' sz='1100' dirty='0'>"
+        "<a:solidFill><a:srgbClr val='003366'/></a:solidFill>"
+        "<a:latin typeface='Calibri'/>"
+        "</a:rPr>"
+        f"<a:t>{title}</a:t>"
+        "</a:r></a:p>"
+        "</rich></tx>"
+        "<overlay val='0'/>"
+        "<spPr><a:noFill/><a:ln><a:noFill/></a:ln></spPr>"
+        "</title>"
+    )
+    plot_area_spr = (
+        "<spPr>"
+        "<a:solidFill><a:srgbClr val='FFFFFF'/></a:solidFill>"
+        "<a:ln><a:noFill/></a:ln>"
+        "<a:effectLst/>"
+        "</spPr>"
+    )
+    return (
+        _CHART_HDR
+        + "<roundedCorners val='0'/>"
+        + "<chart>"
+        + title_xml
+        + "<autoTitleDeleted val='0'/>"
+        + "<plotArea>"
+        + "<layout/>"
+        + plot_area_spr
+        + "<lineChart>"
+        + "<grouping val='standard'/>"
+        + "<varyColors val='0'/>"
+        + ser1 + ser2
+        + "<axId val='10'/><axId val='100'/>"
+        + "</lineChart>"
+        + cat_ax + val_ax
+        + "</plotArea>"
+        + legend
+        + "<plotVisOnly val='1'/>"
+        + "<dispBlanksAs val='gap'/>"
+        + "</chart>"
+        + _CHART_SPACE_SPR
+        + _CHART_FTR
+    )
+
+
+def _gs_comp_chart_xml(xml_str: str) -> str:
+    """Full GS-style clustered column chart: navy/steel bars with data labels."""
+    refs   = _extract_refs(xml_str)
+
+    s1_title = refs[0] if len(refs) > 0 else "'Competitive Analysis'!B19"
+    s1_cat   = refs[1] if len(refs) > 1 else "'Competitive Analysis'!$A$20:$A$22"
+    s1_val   = refs[2] if len(refs) > 2 else "'Competitive Analysis'!$B$20:$B$22"
+    s2_title = refs[3] if len(refs) > 3 else "'Competitive Analysis'!C19"
+    s2_cat   = refs[4] if len(refs) > 4 else s1_cat
+    s2_val   = refs[5] if len(refs) > 5 else "'Competitive Analysis'!$C$20:$C$22"
+
+    def _dlbls(fg: str) -> str:
+        return (
+            "<dLbls>"
+            "<numFmt formatCode='0.0' sourceLinked='0'/>"
+            "<spPr><a:noFill/><a:ln><a:noFill/></a:ln></spPr>"
+            "<txPr><a:bodyPr/><a:lstStyle/>"
+            "<a:p><a:pPr>"
+            f"<a:defRPr sz='900' b='1'>"
+            f"<a:solidFill><a:srgbClr val='{fg}'/></a:solidFill>"
+            "<a:latin typeface='Calibri'/>"
+            "</a:defRPr></a:pPr></a:p></txPr>"
+            "<showLegendKey val='0'/>"
+            "<showVal val='1'/>"
+            "<showCatName val='0'/>"
+            "<showSerName val='0'/>"
+            "<showPercent val='0'/>"
+            "<showBubbleSize val='0'/>"
+            "<dLblPos val='outEnd'/>"
+            "</dLbls>"
+        )
+
+    ser1 = (
+        "<ser>"
+        "<idx val='0'/><order val='0'/>"
+        f"<tx><strRef><f>{s1_title}</f></strRef></tx>"
+        "<spPr>"
+        "<a:solidFill><a:srgbClr val='003366'/></a:solidFill>"
+        "<a:ln><a:noFill/></a:ln>"
+        "</spPr>"
+        + _dlbls("003366")
+        + f"<cat><strRef><f>{s1_cat}</f></strRef></cat>"
+        + f"<val><numRef><f>{s1_val}</f></numRef></val>"
+        + "</ser>"
+    )
+    ser2 = (
+        "<ser>"
+        "<idx val='1'/><order val='1'/>"
+        f"<tx><strRef><f>{s2_title}</f></strRef></tx>"
+        "<spPr>"
+        "<a:solidFill><a:srgbClr val='8EB4E3'/></a:solidFill>"
+        "<a:ln><a:noFill/></a:ln>"
+        "</spPr>"
+        + _dlbls("2D5F8A")
+        + f"<cat><strRef><f>{s2_cat}</f></strRef></cat>"
+        + f"<val><numRef><f>{s2_val}</f></numRef></val>"
+        + "</ser>"
+    )
+    cat_ax = (
+        "<catAx>"
+        "<axId val='10'/>"
+        "<scaling><orientation val='minMax'/></scaling>"
+        "<delete val='0'/>"
+        "<axPos val='b'/>"
+        "<spPr><a:ln><a:noFill/></a:ln></spPr>"
+        + _txpr(1000, "2C2C2C") +
+        "<majorTickMark val='none'/>"
+        "<minorTickMark val='none'/>"
+        "<tickLblPos val='low'/>"
+        "<crossAx val='100'/>"
+        "<auto val='0'/>"
+        "<noMultiLvlLbl val='1'/>"
+        "</catAx>"
+    )
+    val_ax = (
+        "<valAx>"
+        "<axId val='100'/>"
+        "<scaling><orientation val='minMax'/></scaling>"
+        "<delete val='0'/>"
+        "<axPos val='l'/>"
+        "<majorGridlines>"
+        "<spPr><a:ln w='9525'>"
+        "<a:solidFill><a:srgbClr val='E8E8E8'/></a:solidFill>"
+        "<a:prstDash val='solid'/>"
+        "</a:ln></spPr>"
+        "</majorGridlines>"
+        "<spPr><a:ln><a:noFill/></a:ln></spPr>"
+        + _txpr(900, "595959") +
+        "<numFmt formatCode='0.0' sourceLinked='0'/>"
+        "<majorTickMark val='none'/>"
+        "<minorTickMark val='none'/>"
+        "<crossAx val='10'/>"
+        "</valAx>"
+    )
+    legend = (
+        "<legend>"
+        "<legendPos val='b'/>"
+        "<overlay val='0'/>"
+        "<spPr><a:noFill/><a:ln><a:noFill/></a:ln></spPr>"
+        + _txpr(900, "595959") +
+        "</legend>"
+    )
+    plot_area_spr = (
+        "<spPr>"
+        "<a:solidFill><a:srgbClr val='FFFFFF'/></a:solidFill>"
+        "<a:ln><a:noFill/></a:ln>"
+        "<a:effectLst/>"
+        "</spPr>"
+    )
+    return (
+        _CHART_HDR
+        + "<roundedCorners val='0'/>"
+        + "<chart>"
+        + "<autoTitleDeleted val='1'/>"
+        + "<plotArea>"
+        + "<layout/>"
+        + plot_area_spr
+        + "<barChart>"
+        + "<barDir val='col'/>"
+        + "<grouping val='clustered'/>"
+        + "<varyColors val='0'/>"
+        + ser1 + ser2
+        + "<gapWidth val='100'/>"
+        + "<overlap val='0'/>"
+        + "<axId val='10'/><axId val='100'/>"
+        + "</barChart>"
+        + cat_ax + val_ax
+        + "</plotArea>"
+        + legend
+        + "<plotVisOnly val='1'/>"
+        + "<dispBlanksAs val='gap'/>"
+        + "</chart>"
+        + _CHART_SPACE_SPR
+        + _CHART_FTR
+    )
+
+
+def _polish_charts(output_path: str, ticker: str) -> None:
+    """Replace openpyxl chart XML in the saved xlsx with GS-style professional OOXML."""
+    tmp = output_path + ".~tmp"
+    try:
+        with zipfile.ZipFile(output_path, "r") as zin:
+            with zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED) as zout:
+                for item in zin.infolist():
+                    data = zin.read(item.filename)
+                    name = item.filename
+                    if name.startswith("xl/charts/chart") and name.endswith(".xml"):
+                        xml_str = data.decode("utf-8")
+                        if "<lineChart>" in xml_str:
+                            data = _gs_price_chart_xml(xml_str, ticker).encode("utf-8")
+                        elif "<barChart>" in xml_str:
+                            data = _gs_comp_chart_xml(xml_str).encode("utf-8")
+                    zout.writestr(item, data)
+        os.replace(tmp, output_path)
+    except Exception:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
+
+
 def build_excel(ticker: str, stats: dict, fin_data: dict,
                 price_history, sp500_history, markdown: str,
                 news_sentiment: dict | None,
@@ -1680,3 +2036,4 @@ def build_excel(ticker: str, stats: dict, fin_data: dict,
     _build_earnings_sheet(wb, research)
     _build_competitive_sheet(wb, comp_result)
     wb.save(output_path)
+    _polish_charts(output_path, ticker)

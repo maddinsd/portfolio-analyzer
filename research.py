@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeou
 import anthropic
 
 _MODEL   = "claude-sonnet-4-6"
-_MAX_TOK = 800
+_MAX_TOK = 1500
 _TIMEOUT = 60
 _SYSTEM  = "You are a senior equity analyst. Be precise and data-specific. Output only valid JSON."
 

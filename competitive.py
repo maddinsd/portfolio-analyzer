@@ -1,14 +1,79 @@
 from __future__ import annotations
 
 import math
+import os
 from concurrent.futures import ThreadPoolExecutor
 
+import requests
 import yfinance as yf
 
 _MAX_PEERS = 6
 _MIN_PEERS = 3
 _CAP_LO    = 0.20   # min market-cap multiplier vs target
 _CAP_HI    = 5.00   # max market-cap multiplier vs target
+
+_FMP_BASE = "https://financialmodelingprep.com/stable"
+
+
+# ── FMP helpers (standalone — no cross-module imports) ────────────────────────
+
+def _fmp_get(endpoint: str, params: dict) -> list | dict | None:
+    """FMP REST call with timeout=10. Returns parsed JSON or None on any error."""
+    key = os.environ.get("FMP_API_KEY")
+    if not key:
+        return None
+    try:
+        r = requests.get(
+            f"{_FMP_BASE}/{endpoint}",
+            params={**params, "apikey": key},
+            timeout=10,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception:
+        return None
+
+
+def _fmp_search_peers(query: str, target: str) -> list[str]:
+    """Use FMP /search-name to find ticker candidates by industry/sector name.
+
+    Returns a list of US-listed tickers (excluding target), or [] on failure.
+    Used as a fallback when yfinance Industry/Sector API returns no results.
+    """
+    raw = _fmp_get("search-name", {"query": query, "limit": 25})
+    if not raw or not isinstance(raw, list):
+        return []
+    us_exchanges = {"NASDAQ", "NYSE", "AMEX", "NYSE ARCA", "NASDAQ NM"}
+    tickers = [
+        r["symbol"] for r in raw
+        if r.get("symbol")
+        and r.get("symbol") != target
+        and r.get("exchangeShortName", "") in us_exchanges
+    ]
+    return tickers[:20]
+
+
+def _fmp_peer_profile(ticker: str) -> dict:
+    """Fetch peer market cap and name from FMP /profile.
+
+    Returns a partial info dict compatible with _extract_metrics().
+    Used as fallback when yfinance returns empty info for a peer.
+    """
+    raw = _fmp_get("profile", {"symbol": ticker})
+    if not raw or not isinstance(raw, list) or not raw[0]:
+        return {}
+    p = raw[0]
+    return {
+        "shortName":  p.get("companyName") or ticker,
+        "marketCap":  p.get("mktCap"),
+        # Margin/ratio fields not available from /profile — will render as N/A
+        "revenueGrowth":    None,
+        "grossMargins":     None,
+        "operatingMargins": None,
+        "returnOnEquity":   None,
+        "debtToEquity":     None,
+        "forwardPE":        None,
+    }
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -34,10 +99,16 @@ def _safe_f(val, d: int = 1) -> float | None:
 
 
 def _fetch_info(ticker: str) -> tuple[str, dict]:
+    """Fetch peer info via yfinance; fall back to FMP /profile if yfinance returns empty."""
     try:
-        return ticker, (yf.Ticker(ticker).info or {})
+        info = yf.Ticker(ticker).info or {}
     except Exception:
-        return ticker, {}
+        info = {}
+    if not info.get("marketCap"):
+        fmp_info = _fmp_peer_profile(ticker)
+        if fmp_info.get("marketCap"):
+            return ticker, fmp_info
+    return ticker, info
 
 
 def _normalize(name: str) -> str:
@@ -46,11 +117,10 @@ def _normalize(name: str) -> str:
 
 
 def _candidate_tickers(industry: str, sector: str, target: str) -> tuple[list[str], str]:
-    """Try Industry first, fall back to Sector. Return (tickers, source_label)."""
+    """Try yfinance Industry → Sector → FMP /search-name. Return (tickers, source_label)."""
     for name, src in [(industry, "industry"), (sector, "sector")]:
         if not name:
             continue
-        # Try both normalized and raw space-separated form
         for variant in [_normalize(name), name.lower()]:
             try:
                 obj = yf.Industry(variant) if src == "industry" else yf.Sector(variant)
@@ -61,6 +131,13 @@ def _candidate_tickers(industry: str, sector: str, target: str) -> tuple[list[st
                         return tickers[:20], src
             except Exception:
                 continue
+
+    # FMP /search-name fallback — fires when both yfinance APIs return empty
+    for query in filter(None, [industry, sector]):
+        tickers = _fmp_search_peers(query, target)
+        if len(tickers) >= _MIN_PEERS:
+            return tickers, "fmp"
+
     return [], "none"
 
 
