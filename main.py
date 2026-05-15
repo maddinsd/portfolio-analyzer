@@ -15,7 +15,12 @@ def main() -> int:
     parser.add_argument("ticker", help="Stock ticker symbol (e.g. AAPL)")
     parser.add_argument("--dry-run", action="store_true", help="Skip Claude call, print payload")
     parser.add_argument("--pitch",   action="store_true", help="Generate 12-slide PowerPoint pitch deck")
+    parser.add_argument("--pdf",     action="store_true", help="Generate equity research PDF report")
+    parser.add_argument("--full",    action="store_true", help="Generate Excel + PDF + pitch deck")
     args = parser.parse_args()
+    if args.full:
+        args.pdf   = True
+        args.pitch = True
 
     ticker = args.ticker.upper()
 
@@ -42,6 +47,7 @@ def main() -> int:
     from competitive import run_competitive
     from analyst_coverage import run_analyst_coverage
     from pitch import run_pitch
+    from report_pdf import run_pdf
 
     print(f"Fetching data for {ticker}...")
     data = fetch_stock_data(ticker)
@@ -118,6 +124,27 @@ def main() -> int:
     shutil.copy2(xl_path, xl_latest)
     print(f"Saved: {xl_path}")
     print(f"  → {xl_latest.name}")
+
+    if args.pdf:
+        pdf_path   = ticker_dir / f"{stem}_research.pdf"
+        pdf_latest = ticker_dir / f"{ticker}_latest_research.pdf"
+        print("Building equity research PDF...")
+        pdf_result = run_pdf(
+            ticker, stats, fin_data,
+            dcf_result=dcf_result,
+            research=research,
+            comp_result=comp_result,
+            cov_result=analyst_cov_result,
+            out_path=str(pdf_path),
+        )
+        if pdf_result.get("error"):
+            print(f"  PDF failed: {pdf_result['error']}")
+            if pdf_result.get("traceback"):
+                print(pdf_result["traceback"][:800])
+        else:
+            shutil.copy2(pdf_path, pdf_latest)
+            print(f"Saved: {pdf_path}")
+            print(f"  → {pdf_latest.name}")
 
     if args.pitch:
         pitch_path   = ticker_dir / f"{stem}_pitch.pptx"
