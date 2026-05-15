@@ -3,7 +3,7 @@
 ## 1. PROJECT SUMMARY
 Professional stock analyzer CLI (`python3 main.py TICKER`). Stack: Python 3.9, yfinance, FMP REST API, anthropic SDK (claude-sonnet-4-6), openpyxl, python-dotenv, NewsAPI, requests. Pipeline: yfinance + FMP parallel fetch → compute stats + DCF → peer competitive fetch (yfinance Sector/Industry + FMP /search-name fallback, parallel) → analyst coverage fetch (FMP /analyst-stock-recommendations + /price-target + /analyst-estimates) → Claude API analysis (Sonnet 4.6, MAX_TOKENS=4096) → 3 parallel research agents → markdown report + 14-sheet Goldman-formatted Excel workbook. Secrets in `.env` (ANTHROPIC_API_KEY, NEWS_API_KEY, FMP_API_KEY) — never committed. User is a finance student; explain financial concepts when introducing new analysis features, skip coding basics.
 
-**Report output:** `reports/TICKER/TICKER_YYYYMMDD_HHMM.{xlsx,md}` (timestamped archive) + `reports/TICKER/TICKER_latest.{xlsx,md}` (always current). Ticker subfolder created automatically.
+**Report output:** `reports/TICKER/TICKER_YYYYMMDD_HHMM.{xlsx,md}` (timestamped archive) + `reports/TICKER/TICKER_latest.{xlsx,md}` (always current). With `--pitch`: also `TICKER_YYYYMMDD_HHMM_pitch.pptx` + `TICKER_latest_pitch.pptx`. Ticker subfolder created automatically.
 
 ## 2. FILE MAP
 Read ONLY the file listed. Never open additional files for a single-file task.
@@ -19,6 +19,7 @@ Read ONLY the file listed. Never open additional files for a single-file task.
 | Research agents: thesis, comps, earnings | `research.py` (195 lines) | `run_research_pipeline()`. Model: haiku-4-5-20251001, timeout=60s |
 | Competitive landscape, peer metrics, moat assessment | `competitive.py` | `run_competitive()`. yfinance Sector/Industry API requires **lowercase** names. FMP `/search-name` fires as fallback when yfinance returns 0 peers; FMP `/profile` as fallback when yfinance returns empty info for a peer. Returns target, peers, peer_medians, rankings, claude (moat assessment from reporter.py). |
 | Analyst coverage: consensus, price targets, EPS estimates | `analyst_coverage.py` | `run_analyst_coverage()`. FMP: `/analyst-stock-recommendations` (buy/hold/sell counts), `/price-target` (mean/high/low from last 10), `/analyst-estimates` (quarterly EPS + revenue). Falls back to yfinance info for targetMeanPrice/numberOfAnalystOpinions if FMP returns nothing. Returns consensus_rating, bull_ratio, mean/high/low_target, upside_pct, target_spread_pct, estimates, recent_targets. claude assessment piggybacked on reporter.py API call (cov JSON field). |
+| 12-slide PowerPoint pitch deck | `pitch.py` (1088 lines) | `run_pitch(ticker, stats, fin_data, dcf_result, research, comp_result, cov_result, out_path)`. Uses python-pptx 1.0.x. Design constants top-of-file match excel.py palette. No API calls. Triggered by `--pitch` flag in main.py. Output: `TICKER_YYYYMMDD_HHMM_pitch.pptx` + `TICKER_latest_pitch.pptx`. Football field on slide 8 drawn manually (shapes, no chart). |
 | Adding a new Phase 4 module | new `.py` + `main.py` + `reporter.py` + `excel.py` | Follow pattern in ROADMAP section exactly |
 
 **Current Excel sheets (14):** Snapshot, Price Chart, Analysis, Bull vs Bear, Income Statement, Balance Sheet, Cash Flow, News & Sentiment, DCF Model, Investment Thesis, Comps Analysis, Earnings Preview, Competitive Analysis, Analyst Coverage.
@@ -80,8 +81,8 @@ Non-negotiable. Never relax these.
 
 **Phase 3: Complete.** 14 sheets, competitive analysis (sheet 13), analyst coverage (sheet 14).
 
-**Phase 4 (next):**
-- `pitch.py` → `.pptx` pitch deck output
+**Phase 4 (in progress):**
+- `pitch.py` → `.pptx` 12-slide pitch deck — **Complete** (`--pitch` flag)
 - `pdf.py` → equity research PDF
 - `briefing.py` → daily news digest
 

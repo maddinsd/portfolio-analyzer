@@ -14,6 +14,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(prog="stock-analyzer")
     parser.add_argument("ticker", help="Stock ticker symbol (e.g. AAPL)")
     parser.add_argument("--dry-run", action="store_true", help="Skip Claude call, print payload")
+    parser.add_argument("--pitch",   action="store_true", help="Generate 12-slide PowerPoint pitch deck")
     args = parser.parse_args()
 
     ticker = args.ticker.upper()
@@ -40,6 +41,7 @@ def main() -> int:
     from research import run_research_pipeline
     from competitive import run_competitive
     from analyst_coverage import run_analyst_coverage
+    from pitch import run_pitch
 
     print(f"Fetching data for {ticker}...")
     data = fetch_stock_data(ticker)
@@ -116,6 +118,26 @@ def main() -> int:
     shutil.copy2(xl_path, xl_latest)
     print(f"Saved: {xl_path}")
     print(f"  → {xl_latest.name}")
+
+    if args.pitch:
+        pitch_path   = ticker_dir / f"{stem}_pitch.pptx"
+        pitch_latest = ticker_dir / f"{ticker}_latest_pitch.pptx"
+        print("Building pitch deck (12 slides)...")
+        pitch_result = run_pitch(
+            ticker, stats, fin_data,
+            dcf_result=dcf_result,
+            research=research,
+            comp_result=comp_result,
+            cov_result=analyst_cov_result,
+            out_path=str(pitch_path),
+        )
+        if pitch_result.get("error"):
+            print(f"  Pitch deck failed: {pitch_result['error']}")
+        else:
+            shutil.copy2(pitch_path, pitch_latest)
+            print(f"Saved: {pitch_path}")
+            print(f"  → {pitch_latest.name}")
+
     return 0
 
 
