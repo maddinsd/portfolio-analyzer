@@ -97,7 +97,6 @@ def _build_payload(stats: dict, fin_data: dict, news: list | None = None,
         "mktCap": _fmt_large(info.get("marketCap")),
         "ret6m": _fmt(stats["stock_return_6mo"], pct=True),
         "spx6m": _fmt(stats["sp500_return_6mo"], pct=True),
-        "rel": _fmt(stats["relative_return"], pct=True),
         "vol": _fmt(stats["volatility_annualized"], pct=True),
         "hi52": _fmt(stats["pct_from_52w_high"], pct=True),
         "lo52": _fmt(stats["pct_from_52w_low"], pct=True),
@@ -107,8 +106,6 @@ def _build_payload(stats: dict, fin_data: dict, news: list | None = None,
         "eps": _fmt(info.get("trailingEps")),
         "feps": _fmt(info.get("forwardEps")),
         "rat": _fmt(info.get("recommendationMean")),
-        "tgt": _fmt(info.get("targetMeanPrice")),
-        "nAn": info.get("numberOfAnalystOpinions"),
         "ma50": _fmt(info.get("fiftyDayAverage")),
         "ma200": _fmt(info.get("twoHundredDayAverage")),
         "biz": (info.get("longBusinessSummary") or "")[:200],
@@ -118,12 +115,7 @@ def _build_payload(stats: dict, fin_data: dict, news: list | None = None,
     inc = fin_data.get("income_statement", {})
     cf  = fin_data.get("cash_flow", {})
     bs  = fin_data.get("balance_sheet") or {}
-    a_inc = inc.get("annual") or {}
-    a_cf  = cf.get("annual") or {}
     q_inc = inc.get("quarterly") or {}
-
-    def _first(lst):
-        return lst[0] if lst else None
 
     payload["fin"] = {
         "aRevGr":  _fmt_pct(inc.get("yoy_revenue")),
@@ -140,6 +132,15 @@ def _build_payload(stats: dict, fin_data: dict, news: list | None = None,
         "curr":  _fmt(bs.get("current_ratio")),
     }
 
+    # Include analyst target/count only when full coverage object is unavailable
+    if not (analyst_coverage and not analyst_coverage.get("error")):
+        tgt_val = info.get("targetMeanPrice")
+        nan_val = info.get("numberOfAnalystOpinions")
+        if tgt_val is not None:
+            payload["tgt"] = _fmt(tgt_val)
+        if nan_val:
+            payload["nAn"] = nan_val
+
     if news:
         payload["news"] = [a["headline"][:60] for a in news if a.get("headline")]
 
@@ -148,7 +149,6 @@ def _build_payload(stats: dict, fin_data: dict, news: list | None = None,
         inp = dcf_result["inputs"]
         payload["dcf"] = {
             "iv":   _fmt(v["intrinsic"]),
-            "px":   _fmt(v["current_price"]) if v["current_price"] else "N/A",
             "up":   _fmt_pct(v["upside_pct"]) if v["upside_pct"] is not None else "N/A",
             "wacc": f"{inp['wacc']}%",
             "tv":   f"{v['tv_pct']}%",

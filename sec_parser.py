@@ -3,8 +3,6 @@ from __future__ import annotations
 import html as html_lib
 import re
 import time
-from datetime import date
-
 import requests
 
 _HEADERS = {"User-Agent": "SamuelMadding/1.0 sdmadding@icloud.com"}

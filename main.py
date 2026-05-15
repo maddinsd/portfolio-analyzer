@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import shutil
-import sys
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
@@ -80,55 +80,60 @@ def main() -> int:
         print("Spawning research pipeline (3 agents in parallel)...")
         research = run_research_pipeline(ticker, stats, fin_data)
 
-    print("Mapping competitive landscape...")
-    comp_result = run_competitive(ticker, stats, fin_data)
+    # ── Run all independent modules in parallel ───────────────────────────────
+    print("Running analysis modules in parallel"
+          " (competitive · coverage · earnings · SEC filings · insider transactions)...")
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        fut_comp    = pool.submit(run_competitive,        ticker, stats, fin_data)
+        fut_cov     = pool.submit(run_analyst_coverage,   ticker, stats, fin_data)
+        fut_tr      = pool.submit(run_transcript_parser,  ticker, stats, fin_data)
+        fut_sec     = pool.submit(run_sec_parser,         ticker, stats, fin_data)
+        fut_insider = pool.submit(run_insider_tracker,    ticker, stats, fin_data)
+        comp_result        = fut_comp.result()
+        analyst_cov_result = fut_cov.result()
+        transcript_result  = fut_tr.result()
+        sec_result         = fut_sec.result()
+        insider_result     = fut_insider.result()
+
     if comp_result.get("error"):
         print(f"  Competitive: {comp_result['error']}")
     else:
         n_peers = len(comp_result.get("peers", []))
-        print(f"  Found {n_peers} peers via {comp_result.get('source')}")
+        print(f"  Competitive: {n_peers} peers via {comp_result.get('source')}")
 
-    print("Fetching analyst coverage...")
-    analyst_cov_result = run_analyst_coverage(ticker, stats, fin_data)
     if analyst_cov_result.get("error"):
-        print(f"  Analyst coverage: {analyst_cov_result['error']}")
+        print(f"  Coverage: {analyst_cov_result['error']}")
     else:
         n_an = analyst_cov_result.get("total_analysts", 0)
         cons = analyst_cov_result.get("consensus_rating", "—")
-        print(f"  {n_an} analysts · consensus: {cons}")
+        print(f"  Coverage: {n_an} analysts · consensus: {cons}")
 
-    print("Parsing earnings history...")
-    transcript_result = run_transcript_parser(ticker, stats, fin_data)
     if transcript_result.get("error"):
-        print(f"  Earnings history: {transcript_result['error']}")
+        print(f"  Earnings: {transcript_result['error']}")
     else:
-        streak = transcript_result.get("beat_streak", 0)
-        beats  = transcript_result.get("beat_count", 0)
-        total  = transcript_result.get("total_quarters", 0)
-        tone   = transcript_result.get("tone_label", "—")
-        print(f"  {beats}/{total} beats · streak: {streak} · tone: {tone}")
+        beats = transcript_result.get("beat_count", 0)
+        total = transcript_result.get("total_quarters", 0)
+        streak= transcript_result.get("beat_streak", 0)
+        tone  = transcript_result.get("tone_label", "—")
+        print(f"  Earnings: {beats}/{total} beats · streak: {streak} · tone: {tone}")
 
-    print("Fetching SEC filings (EDGAR)...")
-    sec_result = run_sec_parser(ticker, stats, fin_data)
     if sec_result.get("error"):
         print(f"  SEC: {sec_result['error']}")
     else:
         n_risks  = len(sec_result.get("top_risks", []))
         sec_tone = sec_result.get("tone_signals", {}).get("tone_label", "—")
         k_date   = sec_result.get("latest_10k_date", "—")
-        print(f"  10-K: {k_date} · {n_risks} risks extracted · MD&A tone: {sec_tone}")
+        print(f"  SEC: 10-K {k_date} · {n_risks} risks · MD&A tone: {sec_tone}")
 
-    print("Fetching insider transactions (EDGAR Form 4)...")
-    insider_result = run_insider_tracker(ticker, stats, fin_data)
     if insider_result.get("error"):
         print(f"  Insider: {insider_result['error']}")
     else:
-        ins_signal = insider_result.get("net_signal_90d", "—")
-        ins_score  = insider_result.get("conviction_score", 0.0)
-        ins_buyers = insider_result.get("unique_buyers_90d", 0)
-        ins_sellers= insider_result.get("unique_sellers_90d", 0)
-        print(f"  Signal: {ins_signal} · conviction: {ins_score:.1f}/10 "
-              f"· {ins_buyers} buyers / {ins_sellers} sellers (90d)")
+        ins_signal  = insider_result.get("net_signal_90d", "—")
+        ins_score   = insider_result.get("conviction_score", 0.0)
+        ins_buyers  = insider_result.get("unique_buyers_90d", 0)
+        ins_sellers = insider_result.get("unique_sellers_90d", 0)
+        print(f"  Insider: {ins_signal} · conviction {ins_score:.1f}/10"
+              f" · {ins_buyers} buyers / {ins_sellers} sellers (90d)")
 
     print("Generating analysis...")
     markdown, news_sentiment, comp_assessment, cov_assessment = build_report(
