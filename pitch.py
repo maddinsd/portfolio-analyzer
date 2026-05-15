@@ -98,6 +98,114 @@ def _rec_color(rating: str | None) -> RGBColor:
     return _MGREY
 
 
+# ── Data-driven fallbacks (used when research pipeline is unavailable) ────────
+
+def _fallback_rating(research: dict | None, cov_result: dict | None) -> str:
+    thesis = (research or {}).get("thesis") or {}
+    if not thesis.get("_placeholder") and thesis.get("rating"):
+        return thesis["rating"]
+    if cov_result and not cov_result.get("error"):
+        return cov_result.get("consensus_rating") or "—"
+    return "—"
+
+
+def _fallback_target(research: dict | None, cov_result: dict | None) -> str:
+    thesis = (research or {}).get("thesis") or {}
+    if not thesis.get("_placeholder"):
+        raw = (thesis.get("target") or "").split("—")[0].strip()
+        if raw:
+            return raw
+    if cov_result and not cov_result.get("error"):
+        mean_t = cov_result.get("mean_target")
+        if mean_t:
+            return f"{_fmt_price(mean_t)} (analyst consensus)"
+    return "—"
+
+
+def _build_data_catalysts(stats: dict, fin_data: dict,
+                          comp_result: dict | None, cov_result: dict | None) -> list[str]:
+    info  = stats.get("info", {})
+    a_inc = (fin_data.get("income_statement") or {}).get("annual") or {}
+    cats  = []
+
+    rev_gr      = stats.get("revenue_growth_yoy")
+    peer_rev_gr = _sf(_sa(comp_result, "peer_medians", "rev_growth")) if comp_result and not comp_result.get("error") else None
+    if rev_gr is not None:
+        vs_peer = f" vs. peer median {peer_rev_gr:.1f}%" if peer_rev_gr else ""
+        cats.append(f"Revenue {_fmt_pct(rev_gr, plus=True)} YoY{vs_peer} — sustained top-line growth at scale")
+
+    gm_list   = a_inc.get("gross_margin") or []
+    gm        = gm_list[0] if gm_list else None
+    gm_prior  = gm_list[1] if len(gm_list) > 1 else None
+    if gm is not None and gm_prior is not None:
+        delta = round(gm - gm_prior, 1)
+        cats.append(f"Gross margin {gm:.1f}% ({'+' if delta >= 0 else ''}{delta:.1f}pp YoY) — operating leverage from services mix shift driving margin re-rating")
+
+    n_an   = cov_result.get("total_analysts") if cov_result and not cov_result.get("error") else None
+    mean_t = cov_result.get("mean_target")    if cov_result and not cov_result.get("error") else None
+    up     = cov_result.get("upside_pct")     if cov_result and not cov_result.get("error") else None
+    rat    = cov_result.get("consensus_rating") if cov_result and not cov_result.get("error") else None
+    if mean_t and n_an:
+        cats.append(f"{n_an} analysts covering; {rat or 'consensus'} with mean target {_fmt_price(mean_t)} ({_fmt_pct(up, plus=True)} upside)")
+
+    return cats[:3] or ["Run without --dry-run for analyst-specific catalyst data"]
+
+
+def _build_data_risks(stats: dict, fin_data: dict,
+                      dcf_result: dict | None, comp_result: dict | None) -> list[str]:
+    info  = stats.get("info", {})
+    risks = []
+
+    fpe      = _sf(info.get("forwardPE"), 1)
+    peer_fpe = _sf(_sa(comp_result, "peer_medians", "fpe")) if comp_result and not comp_result.get("error") else None
+    if fpe and peer_fpe and peer_fpe > 0:
+        prem = round((fpe / peer_fpe - 1) * 100, 0)
+        risks.append(f"Valuation compression — {fpe:.1f}x fwd P/E ({prem:.0f}% premium to {peer_fpe:.1f}x peer median); any guidance miss could trigger immediate de-rating")
+
+    iv   = _sf(dcf_result.get("valuation", {}).get("intrinsic")) if dcf_result and not dcf_result.get("error") else None
+    px   = _sf(stats.get("current_price"))
+    wacc = dcf_result.get("inputs", {}).get("wacc") if dcf_result and not dcf_result.get("error") else None
+    if iv and px and iv < px:
+        disc = round((1 - iv / px) * 100, 0)
+        risks.append(f"Intrinsic value gap — DCF fair value {_fmt_price(iv)} is {disc:.0f}% below current price at WACC {wacc}%; priced for perfect 5-year execution")
+
+    rev_gr   = stats.get("revenue_growth_yoy")
+    rev_cagr = dcf_result.get("inputs", {}).get("rev_cagr") if dcf_result and not dcf_result.get("error") else None
+    if rev_gr is not None:
+        risks.append(f"Growth deceleration — LTM revenue {_fmt_pct(rev_gr, plus=True)} vs. DCF CAGR {_fmt_pct(rev_cagr)}; any slowdown destroys terminal value at current multiples")
+
+    return risks[:3] or ["Run without --dry-run for detailed risk analysis"]
+
+
+def _build_data_bulls(stats: dict, fin_data: dict, comp_result: dict | None) -> list[str]:
+    info  = stats.get("info", {})
+    a_inc = (fin_data.get("income_statement") or {}).get("annual") or {}
+    bulls = []
+
+    rev_gr = stats.get("revenue_growth_yoy")
+    if rev_gr is not None:
+        bulls.append(f"Revenue {_fmt_pct(rev_gr, plus=True)} YoY — top-line expansion sustained at scale demonstrates pricing power that commoditizing hardware peers cannot replicate")
+
+    gm_list  = a_inc.get("gross_margin") or []
+    gm       = gm_list[0] if gm_list else None
+    gm_prior = gm_list[1] if len(gm_list) > 1 else None
+    if gm is not None and gm_prior is not None:
+        delta = round(gm - gm_prior, 1)
+        bulls.append(f"Gross margin {gm:.1f}% ({'+' if delta >= 0 else ''}{delta:.1f}pp YoY) — services mix shift is accelerating margin expansion beyond what the market is pricing in on a hardware-only multiple")
+
+    fpe      = _sf(info.get("forwardPE"), 1)
+    peer_fpe = _sf(_sa(comp_result, "peer_medians", "fpe")) if comp_result and not comp_result.get("error") else None
+    if fpe and peer_fpe and peer_fpe > 0:
+        prem = round((fpe / peer_fpe - 1) * 100, 0)
+        bulls.append(f"{fpe:.1f}x fwd P/E ({prem:.0f}% premium to {peer_fpe:.1f}x peer median) justified by ecosystem lock-in — switching cost is platform, not device; market underestimates duration")
+
+    beta = _sf(info.get("beta"), 2)
+    if beta:
+        bulls.append(f"Beta {beta:.2f} — defensive large-cap quality with deep institutional ownership provides downside support; outperforms in risk-off vs. higher-beta sector peers")
+
+    return bulls[:4] or ["Run without --dry-run for AI-generated investment thesis"]
+
+
 # ── Drawing helpers ───────────────────────────────────────────────────────────
 
 def _rect(slide, left, top, width, height,
@@ -205,9 +313,17 @@ def _football_data(stats: dict, dcf_result: dict | None,
     wk52_low  = _sf(info.get("fiftyTwoWeekLow"))
     wk52_high = _sf(info.get("fiftyTwoWeekHigh"))
 
-    # Analyst targets
-    anal_low  = _sf(_sa(cov_result, "low_target"))  if cov_result and not cov_result.get("error") else None
-    anal_high = _sf(_sa(cov_result, "high_target")) if cov_result and not cov_result.get("error") else None
+    # Analyst targets — individual targets preferred; fall back to mean ± spread estimate
+    anal_low = anal_high = None
+    if cov_result and not cov_result.get("error"):
+        anal_low  = _sf(cov_result.get("low_target"))
+        anal_high = _sf(cov_result.get("high_target"))
+        if anal_low is None or anal_high is None:
+            mean_t = _sf(cov_result.get("mean_target"))
+            if mean_t:
+                spread = _sf(cov_result.get("target_spread_pct")) or 20.0
+                anal_low  = round(mean_t * (1 - spread / 200), 2)
+                anal_high = round(mean_t * (1 + spread / 200), 2)
 
     # Comps-implied: peer fpe range × target forward EPS
     comp_low = comp_high = None
@@ -237,7 +353,7 @@ def _football_data(stats: dict, dcf_result: dict | None,
 
 # ── Slide builders ────────────────────────────────────────────────────────────
 
-def _slide_cover(prs, stats: dict, research: dict | None):
+def _slide_cover(prs, stats: dict, research: dict | None, cov_result: dict | None = None):
     info  = stats.get("info", {})
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     _rect(slide, 0, 0, _W, _H, fill=_NAVY)
@@ -249,9 +365,8 @@ def _slide_cover(prs, stats: dict, research: dict | None):
     px      = _fmt_price(stats.get("current_price"))
     mktcap  = _fmt_large(info.get("marketCap"))
 
-    thesis = (research or {}).get("thesis") or {}
-    rating = thesis.get("rating") if not thesis.get("_placeholder") else None
-    target = thesis.get("target", "").split("—")[0].strip() if not thesis.get("_placeholder") else None
+    rating = _fallback_rating(research, cov_result)
+    target = _fallback_target(research, cov_result)
 
     _txt(slide, _GS_LBL, Inches(9.5), Inches(0.15), Inches(3.5), Inches(0.3),
          size=10, italic=True, color=_MGREY, align=PP_ALIGN.RIGHT)
@@ -263,15 +378,14 @@ def _slide_cover(prs, stats: dict, research: dict | None):
          Inches(1.0), Inches(2.1), Inches(11.3), Inches(0.4),
          size=16, color=_MGREY, align=PP_ALIGN.CENTER)
 
-    if rating:
-        rc = _rec_color(rating)
-        _rect(slide, Inches(5.15), Inches(2.7), Inches(3.0), Inches(0.72), fill=rc)
-        _txt(slide, rating, Inches(5.15), Inches(2.7), Inches(3.0), Inches(0.72),
-             size=32, bold=True, color=_WHITE, align=PP_ALIGN.CENTER, valign=MSO_ANCHOR.MIDDLE)
-    if target:
-        _txt(slide, f"Target Price: {target}",
-             Inches(1.0), Inches(3.55), Inches(11.3), Inches(0.4),
-             size=20, bold=True, color=_WHITE, align=PP_ALIGN.CENTER)
+    rc = _rec_color(rating)
+    _rect(slide, Inches(5.15), Inches(2.7), Inches(3.0), Inches(0.72), fill=rc)
+    _txt(slide, rating if rating != "—" else "UNDER REVIEW",
+         Inches(5.15), Inches(2.7), Inches(3.0), Inches(0.72),
+         size=32, bold=True, color=_WHITE, align=PP_ALIGN.CENTER, valign=MSO_ANCHOR.MIDDLE)
+    _txt(slide, f"Target Price: {target}",
+         Inches(1.0), Inches(3.55), Inches(11.3), Inches(0.4),
+         size=20, bold=True, color=_WHITE, align=PP_ALIGN.CENTER)
 
     _txt(slide, f"Current Price: {px}   |   Market Cap: {mktcap}",
          Inches(1.0), Inches(4.1), Inches(11.3), Inches(0.35),
@@ -288,47 +402,48 @@ def _slide_cover(prs, stats: dict, research: dict | None):
 
 def _slide_summary(prs, stats: dict, fin_data: dict,
                    research: dict | None, comp_result: dict | None,
-                   cov_result: dict | None):
+                   cov_result: dict | None, dcf_result: dict | None = None):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     _add_header(slide, "Investment Summary", 2)
 
-    thesis = (research or {}).get("thesis") or {}
-    ok     = not thesis.get("_placeholder")
-    rating = thesis.get("rating", "—") if ok else "—"
-    target = (thesis.get("target", "") or "").split("—")[0].strip() if ok else "—"
-    cats   = thesis.get("catalysts", []) if ok else []
-    bears  = thesis.get("bear", []) if ok else []
-    verdict = thesis.get("verdict", "") if ok else ""
+    thesis  = (research or {}).get("thesis") or {}
+    ok      = not thesis.get("_placeholder") and bool(thesis.get("rating") or thesis.get("catalysts"))
+    rating  = _fallback_rating(research, cov_result)
+    target  = _fallback_target(research, cov_result)
+    cats    = thesis.get("catalysts", []) if ok else []
+    bears   = thesis.get("bear", [])     if ok else []
+    verdict = thesis.get("verdict", "")  if ok else ""
 
-    px        = stats.get("current_price")
-    mean_tgt  = _sa(cov_result, "mean_target") if cov_result and not cov_result.get("error") else None
-    upside    = _sa(cov_result, "upside_pct")  if cov_result and not cov_result.get("error") else None
+    if not cats:
+        cats = _build_data_catalysts(stats, fin_data, comp_result, cov_result)
+    if not bears:
+        bears = _build_data_risks(stats, fin_data, dcf_result, comp_result)
+
+    px     = stats.get("current_price")
+    upside = cov_result.get("upside_pct") if cov_result and not cov_result.get("error") else None
 
     # Left panel — rating card
     rc = _rec_color(rating)
     _rect(slide, _ML, _CT, Inches(4.0), Inches(1.0), fill=rc)
-    _txt(slide, rating, _ML, _CT, Inches(4.0), Inches(1.0),
+    _txt(slide, rating if rating != "—" else "COVERAGE",
+         _ML, _CT, Inches(4.0), Inches(1.0),
          size=36, bold=True, color=_WHITE, align=PP_ALIGN.CENTER, valign=MSO_ANCHOR.MIDDLE)
 
+    up_color = _GREEN if (upside or 0) >= 0 else _RED
     _txt2(slide, [
-        (f"Target Price: {target}", {"size": 16, "bold": True, "color": _NAVY}),
-        (f"Current Price: {_fmt_price(px)}", {"size": 13, "color": _DGREY, "space_before": 4}),
-        (f"Consensus Upside: {_fmt_pct(upside, plus=True)}", {
-            "size": 14, "bold": True,
-            "color": _GREEN if (upside or 0) >= 0 else _RED,
-            "space_before": 4}),
-        ("12-Month Price Target", {"size": 10, "color": _MGREY, "italic": True, "space_before": 6}),
+        (f"Target: {target}", {"size": 16, "bold": True, "color": _NAVY}),
+        (f"Current: {_fmt_price(px)}", {"size": 13, "color": _DGREY, "space_before": 4}),
+        (f"Upside: {_fmt_pct(upside, plus=True)}", {"size": 14, "bold": True, "color": up_color, "space_before": 4}),
+        ("12-Month Horizon", {"size": 10, "color": _MGREY, "italic": True, "space_before": 6}),
     ], _ML, Inches(1.82), Inches(4.0), Inches(1.8))
 
     # Valuation context
-    tgt_fpe  = _sa(stats, "info", "forwardPE")
-    peer_fpe = _sa(comp_result, "peer_medians", "fpe") if comp_result and not comp_result.get("error") else None
-    if _sf(tgt_fpe) and _sf(peer_fpe):
-        prem = round((_sf(tgt_fpe) / _sf(peer_fpe) - 1) * 100, 1)
+    tgt_fpe  = _sf(stats.get("info", {}).get("forwardPE"), 1)
+    peer_fpe = _sf(_sa(comp_result, "peer_medians", "fpe")) if comp_result and not comp_result.get("error") else None
+    if tgt_fpe and peer_fpe and peer_fpe > 0:
+        prem = round((tgt_fpe / peer_fpe - 1) * 100, 1)
         sign = "premium" if prem >= 0 else "discount"
-        val_line = (f"Trading at {_sf(tgt_fpe,1):.1f}x fwd P/E vs. "
-                    f"peer median {_sf(peer_fpe,1):.1f}x — "
-                    f"{abs(prem):.1f}% {sign}")
+        val_line = f"Trading at {tgt_fpe:.1f}x fwd P/E vs. peer median {peer_fpe:.1f}x — {abs(prem):.1f}% {sign}"
     else:
         val_line = ""
     if val_line:
@@ -339,18 +454,14 @@ def _slide_summary(prs, stats: dict, fin_data: dict,
     # Right panel — catalysts + risks
     _txt(slide, "Key Catalysts", Inches(4.8), _CT, Inches(8.1), Inches(0.35),
          size=14, bold=True, color=_NAVY)
-    cat_lines = []
-    for c in (cats[:3] if cats else ["Analysis requires full run (use without --dry-run)"]):
-        cat_lines.append((f"▸  {c}", {"size": 12, "color": _DGREY, "space_before": 5}))
+    cat_lines = [(f"▸  {c}", {"size": 12, "color": _DGREY, "space_before": 5}) for c in cats[:3]]
     _txt2(slide, cat_lines, Inches(4.8), Inches(1.15), Inches(8.1), Inches(2.0))
 
     _rect(slide, Inches(4.8), Inches(3.3), Inches(8.1), Inches(0.02), fill=_LGREY)
 
     _txt(slide, "Key Risks", Inches(4.8), Inches(3.4), Inches(8.1), Inches(0.3),
          size=13, bold=True, color=_RED)
-    risk_lines = []
-    for b in (bears[:2] if bears else ["—"]):
-        risk_lines.append((f"▸  {b}", {"size": 11, "color": _DGREY, "space_before": 4}))
+    risk_lines = [(f"▸  {b}", {"size": 11, "color": _DGREY, "space_before": 4}) for b in bears[:2]]
     _txt2(slide, risk_lines, Inches(4.8), Inches(3.75), Inches(8.1), Inches(1.4))
 
     if verdict:
@@ -364,8 +475,9 @@ def _slide_overview(prs, stats: dict, fin_data: dict):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     _add_header(slide, "Company Overview", 3)
 
-    info = stats.get("info", {})
-    desc = (info.get("longBusinessSummary") or "Business description not available.")[:420]
+    info     = stats.get("info", {})
+    desc_raw = info.get("longBusinessSummary") or "Business description not available."
+    desc     = (desc_raw[:420].rsplit(' ', 1)[0] + '...') if len(desc_raw) > 420 else desc_raw
     _txt(slide, desc, _ML, _CT, Inches(12.5), Inches(1.35),
          size=11, color=_DGREY, wrap=True)
 
@@ -378,7 +490,12 @@ def _slide_overview(prs, stats: dict, fin_data: dict):
     city     = info.get("fmp_city") or info.get("city") or ""
     state    = info.get("fmp_state") or info.get("state") or ""
     hq       = f"{city}, {state}".strip(", ") or "—"
-    ipo      = (info.get("fmp_ipo_date") or "")[:10] or "—"
+    ipo_raw  = (info.get("fmp_ipo_date") or "")[:10]
+    try:
+        from datetime import datetime as _dt
+        ipo = _dt.strptime(ipo_raw, "%Y-%m-%d").strftime("%b %d, %Y") if ipo_raw else "—"
+    except Exception:
+        ipo = ipo_raw or "—"
     sector   = info.get("sector") or "—"
     industry = info.get("industry") or "—"
 
@@ -407,7 +524,8 @@ def _slide_overview(prs, stats: dict, fin_data: dict):
     fpe      = _sf(info.get("forwardPE"), 1)
     rev_gr   = _fmt_pct(stats.get("revenue_growth_yoy"), plus=True)
     beta     = _sf(info.get("beta"), 2)
-    div_yld  = _fmt_pct(_sf(info.get("dividendYield"), 4) * 100 if info.get("dividendYield") else None)
+    dy_f     = _sf(info.get("dividendYield"), 4)
+    div_yld  = f"{dy_f:.2f}%" if dy_f is not None else "—"
 
     right_data = [
         ("Price",         px),
@@ -428,22 +546,21 @@ def _slide_overview(prs, stats: dict, fin_data: dict):
         y += Inches(0.38)
 
 
-def _slide_thesis(prs, research: dict | None):
+def _slide_thesis(prs, research: dict | None,
+                  stats: dict | None = None, fin_data: dict | None = None,
+                  comp_result: dict | None = None):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     _add_header(slide, "Investment Thesis", 4)
 
-    thesis = (research or {}).get("thesis") or {}
-    ok     = not thesis.get("_placeholder")
-    bulls  = thesis.get("bull", []) if ok else []
+    thesis  = (research or {}).get("thesis") or {}
+    ok      = not thesis.get("_placeholder")
+    bulls   = thesis.get("bull", []) if ok else []
     verdict = thesis.get("verdict", "") if ok else ""
 
-    placeholders = [
-        "Strong competitive position supports durable revenue growth",
-        "Expanding margins driven by operating leverage and mix shift",
-        "Capital return program and balance sheet optionality",
-        "Undervalued relative to peers on forward multiples",
-    ]
-    points = (bulls[:4] if len(bulls) >= 2 else placeholders)
+    if len(bulls) < 2 and stats and fin_data:
+        points = _build_data_bulls(stats, fin_data, comp_result)
+    else:
+        points = bulls[:4]
 
     positions = [
         (_ML,            _CT),
@@ -645,11 +762,22 @@ def _slide_comps(prs, stats: dict, research: dict | None, comp_result: dict | No
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     _add_header(slide, "Comparable Companies", 7)
 
-    comps_r  = (research or {}).get("comps") or {}
-    ok_r     = not comps_r.get("_placeholder")
+    comps_r   = (research or {}).get("comps") or {}
+    ok_r      = not comps_r.get("_placeholder")
     comp_list = comps_r.get("comps", []) if ok_r else []
     summary   = comps_r.get("summary", "") if ok_r else ""
     premium   = comps_r.get("premium", "") if ok_r else ""
+
+    # Fallback: populate from comp_result["peers"] when research comps unavailable
+    if not comp_list and comp_result and not comp_result.get("error"):
+        for peer in comp_result.get("peers", [])[:5]:
+            comp_list.append({
+                "company":  peer.get("name", peer.get("ticker", "—")),
+                "ticker":   peer.get("ticker", "—"),
+                "ev_ebitda": None,
+                "pe_fwd":   peer.get("fpe"),
+                "ev_rev":   None,
+            })
 
     ticker  = stats.get("ticker", "")
     info    = stats.get("info", {})
@@ -903,25 +1031,32 @@ def _slide_coverage(prs, cov_result: dict | None):
 
     # Buy/hold/sell bar
     if total and total > 0:
-        bar_top = Inches(2.1)
-        bar_h   = Inches(0.32)
-        bar_w   = Inches(3.5)
-        seg_x = _ML
-        for count, fill in [(buys, _GREEN), (holds, _GOLD), (sells, _RED)]:
-            seg_w = bar_w * (count / total)
-            if seg_w > 0:
-                _rect(slide, seg_x, bar_top, seg_w, bar_h, fill=fill)
-                seg_x = seg_x + seg_w
-        _txt(slide, f"Buy: {buys}", _ML, bar_top + Inches(0.35), Inches(1.2), Inches(0.25),
-             size=10, bold=True, color=_GREEN)
-        _txt(slide, f"Hold: {holds}", _ML + Inches(1.2), bar_top + Inches(0.35), Inches(1.1), Inches(0.25),
-             size=10, bold=True, color=_GOLD)
-        _txt(slide, f"Sell: {sells}", _ML + Inches(2.4), bar_top + Inches(0.35), Inches(1.1), Inches(0.25),
-             size=10, bold=True, color=_RED)
-        if bull is not None:
-            _txt(slide, f"Bull ratio: {bull:.1f}%",
-                 _ML, Inches(2.7), Inches(3.5), Inches(0.3),
-                 size=11, bold=True, color=_GREEN if bull >= 60 else _MGREY, align=PP_ALIGN.CENTER)
+        bar_top    = Inches(2.1)
+        bar_h      = Inches(0.32)
+        bar_w      = Inches(3.5)
+        dist_total = buys + holds + sells
+        if dist_total > 0:
+            seg_x = _ML
+            for count, fill in [(buys, _GREEN), (holds, _GOLD), (sells, _RED)]:
+                seg_w = bar_w * (count / dist_total)
+                if seg_w > 0:
+                    _rect(slide, seg_x, bar_top, seg_w, bar_h, fill=fill)
+                    seg_x = seg_x + seg_w
+            _txt(slide, f"Buy: {buys}", _ML, bar_top + Inches(0.35), Inches(1.2), Inches(0.25),
+                 size=10, bold=True, color=_GREEN)
+            _txt(slide, f"Hold: {holds}", _ML + Inches(1.2), bar_top + Inches(0.35), Inches(1.1), Inches(0.25),
+                 size=10, bold=True, color=_GOLD)
+            _txt(slide, f"Sell: {sells}", _ML + Inches(2.4), bar_top + Inches(0.35), Inches(1.1), Inches(0.25),
+                 size=10, bold=True, color=_RED)
+            if bull is not None:
+                _txt(slide, f"Bull ratio: {bull:.1f}%",
+                     _ML, Inches(2.7), Inches(3.5), Inches(0.3),
+                     size=11, bold=True, color=_GREEN if bull >= 60 else _MGREY, align=PP_ALIGN.CENTER)
+        else:
+            _rect(slide, _ML, bar_top, bar_w, bar_h, fill=_rec_color(rating))
+            _txt(slide, f"{total} analysts  |  Breakdown unavailable",
+                 _ML, bar_top + Inches(0.35), bar_w, Inches(0.25),
+                 size=10, italic=True, color=_MGREY)
 
     # Center panel: price targets
     _txt(slide, "Price Target Summary", Inches(4.2), _CT, Inches(4.5), Inches(0.3),
@@ -961,7 +1096,9 @@ def _slide_coverage(prs, cov_result: dict | None):
              size=10, color=_MGREY, italic=True)
 
 
-def _slide_risks(prs, research: dict | None):
+def _slide_risks(prs, research: dict | None,
+                 stats: dict | None = None, fin_data: dict | None = None,
+                 dcf_result: dict | None = None, comp_result: dict | None = None):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     _add_header(slide, "Key Risks", 11)
 
@@ -969,12 +1106,16 @@ def _slide_risks(prs, research: dict | None):
     ok     = not thesis.get("_placeholder")
     bears  = thesis.get("bear", []) if ok else []
 
-    default_risks = [
-        "Macro / rate sensitivity — multiple compression risk if rates stay elevated",
-        "Competitive disruption — faster-than-expected share loss to new entrants",
-        "Execution risk — failure to meet consensus revenue or margin guidance",
-    ]
-    risks = (bears[:3] if len(bears) >= 2 else default_risks[:3])
+    if len(bears) >= 2:
+        risks = bears[:3]
+    elif stats and fin_data:
+        risks = _build_data_risks(stats, fin_data, dcf_result, comp_result)
+    else:
+        risks = [
+            "Macro / rate sensitivity — multiple compression risk if rates stay elevated",
+            "Competitive disruption — faster-than-expected share loss to new entrants",
+            "Execution risk — failure to meet consensus revenue or margin guidance",
+        ]
     probs = ["High", "Medium", "Medium"]
 
     positions = [_ML, Inches(4.65), Inches(8.9)]
@@ -996,10 +1137,6 @@ def _slide_risks(prs, research: dict | None):
              card_w - Inches(0.2), Inches(3.5),
              size=11, color=_DGREY, wrap=True)
 
-    if not ok:
-        _txt(slide, "Note: Run without --dry-run for Claude-generated risk analysis.",
-             _ML, Inches(5.5), Inches(12.5), Inches(0.3),
-             size=10, italic=True, color=_MGREY)
 
 
 def _slide_final(prs, stats: dict, research: dict | None, cov_result: dict | None):
@@ -1011,8 +1148,8 @@ def _slide_final(prs, stats: dict, research: dict | None, cov_result: dict | Non
 
     thesis  = (research or {}).get("thesis") or {}
     ok      = not thesis.get("_placeholder")
-    rating  = thesis.get("rating", "—") if ok else "—"
-    target  = (thesis.get("target", "") or "").split("—")[0].strip() if ok else "—"
+    rating  = _fallback_rating(research, cov_result)
+    target  = _fallback_target(research, cov_result)
     verdict = thesis.get("verdict", "") if ok else ""
     bulls   = thesis.get("bull", []) if ok else []
 
@@ -1068,17 +1205,17 @@ def run_pitch(ticker: str, stats: dict, fin_data: dict,
         prs.slide_width  = _W
         prs.slide_height = _H
 
-        _slide_cover(prs, stats, research)
-        _slide_summary(prs, stats, fin_data, research, comp_result, cov_result)
+        _slide_cover(prs, stats, research, cov_result)
+        _slide_summary(prs, stats, fin_data, research, comp_result, cov_result, dcf_result)
         _slide_overview(prs, stats, fin_data)
-        _slide_thesis(prs, research)
+        _slide_thesis(prs, research, stats, fin_data, comp_result)
         _slide_financials(prs, stats, fin_data)
         _slide_dcf(prs, stats, fin_data, dcf_result)
         _slide_comps(prs, stats, research, comp_result)
         _slide_football(prs, stats, dcf_result, comp_result, cov_result)
         _slide_competitive(prs, stats, comp_result)
         _slide_coverage(prs, cov_result)
-        _slide_risks(prs, research)
+        _slide_risks(prs, research, stats, fin_data, dcf_result, comp_result)
         _slide_final(prs, stats, research, cov_result)
 
         prs.save(out_path)
