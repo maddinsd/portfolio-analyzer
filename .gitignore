@@ -7,11 +7,40 @@ venv/
 dist/
 build/
 
-# Reports output
+# Reports and model outputs
 reports/
+lbo/outputs/
+ma/outputs/
+
+# Generated files
+*.xlsx
+*.pptx
+*.pdf
+*.zip
+
+# Automation state
+automation/.alert_cache.json
+automation/briefings/
+automation/calendars/
+automation/ic_memos/
+
+# Build artifacts
+.build_checkpoint.json
 
 # Environment
 .env
+.env.local
+.env.*.local
 
 # macOS
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
