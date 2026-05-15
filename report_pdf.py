@@ -37,9 +37,10 @@ _SANS_B = 'Helvetica-Bold'
 _SERIF  = 'Times-Roman'     # ≈ Times New Roman
 _SERIF_B = 'Times-Bold'
 
-_GS_HDR  = "Goldman Sachs Equity Research"
-_ANALYST = "Samuel Madding, CFA Candidate"
-_CONF    = "Goldman Sachs Equity Research — For Institutional Clients Only"
+_UC_RED  = colors.HexColor('#E00122')
+_UC_HDR  = "University of Cincinnati  |  Carl H. Lindner College of Business"
+_ANALYST = "Samuel Madding"
+_CONF    = "University of Cincinnati | Lindner College of Business — For Educational Purposes Only"
 
 
 # ── Format helpers ────────────────────────────────────────────────────────────
@@ -504,8 +505,16 @@ def _draw_cover_page(canvas, doc, *, ticker, company, rating, target, px,
 
     canvas.setFont(_SANS, 8.5)
     canvas.setFillColor(_WHITE)
-    canvas.drawString(0.75*inch, H - 0.38*inch, _GS_HDR + "  —  Initiating Coverage")
+    canvas.drawString(0.75*inch, H - 0.38*inch, _UC_HDR + "  —  Initiating Coverage")
     canvas.drawRightString(W - 0.75*inch, H - 0.38*inch, date_str)
+
+    # UC logo placed below header band, left-aligned on cover
+    import os as _os
+    _logo_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "assets", "uc_logo.png")
+    if _os.path.exists(_logo_path):
+        canvas.drawImage(_logo_path, 0.75*inch, H - 1.6*inch,
+                         width=2.2*inch, height=0.52*inch,
+                         preserveAspectRatio=True, mask="auto")
 
     # Company name
     canvas.setFont(_SANS_B, 32)
@@ -583,7 +592,7 @@ def _draw_body_page(canvas, doc, *, ticker, company, rating):
     canvas.setFont(_SANS, 7.5)
     canvas.setFillColor(_WHITE)
     canvas.drawString(0.75*inch, H - 0.25*inch, f"{company}  ({ticker})")
-    canvas.drawRightString(W - 0.75*inch, H - 0.25*inch, _GS_HDR)
+    canvas.drawRightString(W - 0.75*inch, H - 0.25*inch, _UC_HDR)
 
     # Footer rule
     canvas.setStrokeColor(_NAVY)
@@ -1307,7 +1316,7 @@ def _section_appendix(styles: dict, stats: dict, fin_data: dict,
 
 # ── Document assembly ─────────────────────────────────────────────────────────
 
-class _GoldmanDoc(BaseDocTemplate):
+class _UCDoc(BaseDocTemplate):
     def __init__(self, path: str, cover_kw: dict, body_kw: dict, **kw):
         super().__init__(path, **kw)
         self._cover_kw = cover_kw
@@ -1343,7 +1352,7 @@ def run_pdf(ticker: str, stats: dict, fin_data: dict,
             comp_result: dict | None = None,
             cov_result:  dict | None = None,
             out_path: str = "") -> dict:
-    """Build a Goldman-style equity research PDF. Never raises."""
+    """Build a UC Lindner equity research PDF. Never raises."""
     try:
         info    = stats.get("info", {})
         company = info.get("shortName") or info.get("longName") or ticker
@@ -1360,14 +1369,14 @@ def run_pdf(ticker: str, stats: dict, fin_data: dict,
                         lo52=lo52, hi52=hi52, date_str=date_str)
         body_kw  = dict(ticker=ticker, company=company, rating=rating)
 
-        doc = _GoldmanDoc(
+        doc = _UCDoc(
             out_path,
             cover_kw=cover_kw,
             body_kw=body_kw,
             pagesize=letter,
             leftMargin=_LM, rightMargin=_RM,
             topMargin=_TM,  bottomMargin=_BM,
-            title=f"{company} ({ticker}) — Goldman Sachs Equity Research",
+            title=f"{company} ({ticker}) — University of Cincinnati Equity Research",
             author=_ANALYST,
             subject="Initiating Coverage",
         )

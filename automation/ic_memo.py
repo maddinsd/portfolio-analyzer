@@ -116,7 +116,7 @@ Write a formal Investment Committee Memorandum. Use EXACTLY this structure and h
 
 ---
 INVESTMENT COMMITTEE MEMORANDUM
-Samuel Madding Capital | {today} | CONFIDENTIAL
+University of Cincinnati | Lindner College of Business | {today} | CONFIDENTIAL
 
 RECOMMENDATION: {recommendation} {ticker} — {company_name}
 Target Price: $[calculate from DCF/comps] | Current Price: ${current_price:.2f} | Implied Return: [X%]
@@ -154,7 +154,7 @@ Position Size: [X% of portfolio based on conviction: HIGH=4-5%, MEDIUM=2-3%, LOW
 ## RECOMMENDATION & POSITION SIZING
 [Final recommendation with rationale. Position size with specific entry strategy.]
 
-Prepared by: Samuel Madding, CFA Candidate
+Prepared by: Samuel Madding
 ---
 
 Be specific and institutional. Cite numbers. No filler."""

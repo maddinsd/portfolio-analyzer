@@ -65,7 +65,7 @@ def _header_footer(canvas, doc):
     w, h = letter
     canvas.setFont("Times-Italic", 8)
     canvas.setFillColor(_GREY)
-    canvas.drawString(0.75 * inch, 0.5 * inch, f"Goldman Equity Research — Education Guide")
+    canvas.drawString(0.75 * inch, 0.5 * inch, f"University of Cincinnati | Lindner College of Business — Education Guide")
     canvas.drawRightString(w - 0.75 * inch, 0.5 * inch, f"Page {doc.page}")
     canvas.restoreState()
 

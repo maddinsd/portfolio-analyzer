@@ -146,6 +146,7 @@ Non-negotiable. Never relax these.
 **Phase 9: Complete.** `education/` directory: 3-Sonnet-call content engine, Excel cell comments (header text matching), PowerPoint speaker notes, companion PDF (12-section guide + 40-term glossary). `--education` flag + `--audience student|professional`. Adds to existing outputs — never regenerates.
 
 **Phase 10 (next):**
+- Output cleanup complete: UC branding throughout all outputs (PDF, PPTX, Education PDF, IC memo). Goldman Sachs references removed from all user-visible strings. Logo at `assets/uc_logo.png` embedded in PDF cover.
 - `briefing.py` → daily news digest with Claude summary
 
 **Pattern every new module must follow (do not deviate):**
@@ -179,6 +180,9 @@ Non-negotiable. Never relax these.
 - **Never read more than one file to answer a formatting question** — the answer is always in `excel.py`.
 - **Never skip `--dry-run` as the first test of any change** — always confirm the pipeline runs before spending API tokens.
 - **Never exceed 3 Claude API calls in the education layer** — all content is generated in `education/content_engine.py` in exactly 3 Sonnet calls. Never add a 4th. Never use Haiku for education output.
+- **Never use Goldman Sachs branding** — institution is always "University of Cincinnati | Carl H. Lindner College of Business". Short form: "University of Cincinnati | Lindner College of Business". Footer: "University of Cincinnati | Lindner College of Business — For Educational Purposes Only". Logo: `assets/uc_logo.png`.
+- **Never use "Samuel Madding, CFA Candidate"** — analyst name is "Samuel Madding" only, no title, no credential abbreviation.
+- **UC accent color: `#E00122`** (UC red) — use alongside existing navy `#003366`. Defined as `_UC_RED` in `report_pdf.py` and available for use in other modules.
 
 ## 8. SELF-UPDATE INSTRUCTIONS
 

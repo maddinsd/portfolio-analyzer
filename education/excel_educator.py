@@ -8,7 +8,7 @@ from openpyxl import load_workbook
 from openpyxl.comments import Comment
 
 
-_COMMENT_AUTHOR = "Goldman Equity Research"
+_COMMENT_AUTHOR = "University of Cincinnati"
 _MAX_COMMENT_LEN = 280  # Excel truncates very long comments
 
 

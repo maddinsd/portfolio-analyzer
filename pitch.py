@@ -24,7 +24,7 @@ _GREEN       = RGBColor(0x1D, 0x6F, 0x42)
 _RED         = RGBColor(0xC0, 0x00, 0x00)
 _GOLD        = RGBColor(0xD4, 0xA0, 0x17)
 _FONT        = "Calibri"
-_GS_LBL      = "Goldman Sachs  |  Equity Research"
+_GS_LBL      = "University of Cincinnati  |  Lindner College of Business"
 _HDR_H       = Inches(0.62)
 _CT          = Inches(0.72)   # content top (below header)
 _ML          = Inches(0.4)    # left margin
@@ -395,7 +395,7 @@ def _slide_cover(prs, stats: dict, research: dict | None, cov_result: dict | Non
          Inches(1.0), Inches(4.6), Inches(11.3), Inches(0.3),
          size=12, color=_MGREY, align=PP_ALIGN.CENTER)
 
-    _txt(slide, "Confidential — For Professional Investors Only",
+    _txt(slide, "Analyst: Samuel Madding  |  University of Cincinnati | Lindner College of Business — For Educational Purposes Only",
          Inches(1.0), Inches(6.9), Inches(11.3), Inches(0.25),
          size=9, italic=True, color=_MGREY, align=PP_ALIGN.CENTER)
 
@@ -1199,7 +1199,7 @@ def run_pitch(ticker: str, stats: dict, fin_data: dict,
               comp_result: dict | None = None,
               cov_result: dict | None = None,
               out_path: str = "") -> dict:
-    """Build a 12-slide Goldman-style pitch deck. Never raises."""
+    """Build a 12-slide UC Lindner pitch deck. Never raises."""
     try:
         prs = Presentation()
         prs.slide_width  = _W
