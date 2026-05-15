@@ -48,6 +48,7 @@ def main() -> int:
     from analyst_coverage import run_analyst_coverage
     from transcript_parser import run_transcript_parser
     from sec_parser import run_sec_parser
+    from insider_tracker import run_insider_tracker
     from pitch import run_pitch
     from report_pdf import run_pdf
 
@@ -117,10 +118,23 @@ def main() -> int:
         k_date   = sec_result.get("latest_10k_date", "—")
         print(f"  10-K: {k_date} · {n_risks} risks extracted · MD&A tone: {sec_tone}")
 
+    print("Fetching insider transactions (EDGAR Form 4)...")
+    insider_result = run_insider_tracker(ticker, stats, fin_data)
+    if insider_result.get("error"):
+        print(f"  Insider: {insider_result['error']}")
+    else:
+        ins_signal = insider_result.get("net_signal_90d", "—")
+        ins_score  = insider_result.get("conviction_score", 0.0)
+        ins_buyers = insider_result.get("unique_buyers_90d", 0)
+        ins_sellers= insider_result.get("unique_sellers_90d", 0)
+        print(f"  Signal: {ins_signal} · conviction: {ins_score:.1f}/10 "
+              f"· {ins_buyers} buyers / {ins_sellers} sellers (90d)")
+
     print("Generating analysis...")
     markdown, news_sentiment, comp_assessment, cov_assessment = build_report(
         ticker, stats, fin_data, news, dcf_result, research, comp_result,
-        analyst_cov_result, transcript_result, sec_result, dry_run=args.dry_run
+        analyst_cov_result, transcript_result, sec_result,
+        insider_result=insider_result, dry_run=args.dry_run
     )
     if comp_assessment and not comp_result.get("error"):
         comp_result["claude"] = comp_assessment
@@ -144,10 +158,13 @@ def main() -> int:
         n_sheets += 1
     if sec_result:           # sheet always created (shows error note if failed)
         n_sheets += 1
+    if insider_result:       # sheet always created (shows error note if failed)
+        n_sheets += 1
     print(f"Building Excel report ({n_sheets} sheets)...")
     build_excel(ticker, stats, fin_data, data["price_history"], data["sp500_history"],
                 markdown, news_sentiment, dcf_result, research, comp_result,
-                analyst_cov_result, transcript_result, sec_result, str(xl_path))
+                analyst_cov_result, transcript_result, sec_result,
+                insider_result=insider_result, output_path=str(xl_path))
     shutil.copy2(xl_path, xl_latest)
     print(f"Saved: {xl_path}")
     print(f"  → {xl_latest.name}")

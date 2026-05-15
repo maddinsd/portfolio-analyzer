@@ -23,6 +23,7 @@ Read ONLY the file listed. Never open additional files for a single-file task.
 | Goldman-style equity research PDF | `report_pdf.py` | `run_pdf(ticker, stats, fin_data, dcf_result, research, comp_result, cov_result, out_path)`. Uses reportlab 4.x + matplotlib (Agg). No API calls. Triggered by `--pdf` flag. `--full` = `--pdf + --pitch`. Output: `*_research.pdf` + `*_latest_research.pdf`. 9–10 pages: cover, exec summary, financials (charts), valuation (football field), research, risks, appendix. |
 | Earnings beat/miss history, tone score | `transcript_parser.py` | `run_transcript_parser(ticker, stats, fin_data)`. yfinance `earnings_dates` → 8Q EPS beat/miss. FMP `income-statement` (limit=5) → quarterly revenue actuals. Algorithmic tone score (−1 to +1). No API calls. Returns beat_miss_history, beat_streak, miss_streak, beat_count, tone_score, tone_label, guidance_signals, next_earnings_date. |
 | SEC EDGAR filings: 10-K risk factors, MD&A tone, business overview | `sec_parser.py` | `run_sec_parser(ticker, stats, fin_data)`. No API key — requires `User-Agent` header + ≥150ms delay. CIK lookup via `company_tickers.json`; filings via `submissions/CIK{10}.json`; HTML via Archives URL. Extracts Item 1 (business), Item 1A (top 5 risks by length), Item 7 (MD&A summary + tone). Algorithmic only — no Claude calls. Payload key: `"edgar"` (NOT `"sec"` — that key is taken by sector). Returns cik, latest_10k_date, latest_10q_date, filing_url_10k, filing_url_10q, filing_history, top_risks, mda_summary, business_summary, tone_signals. |
+| Insider transactions: Form 4 buy/sell signals, conviction scoring | `insider_tracker.py` | `run_insider_tracker(ticker, stats, fin_data)`. EDGAR Form 4 XML via `submissions/CIK{10}.json` + Archives URL. KEEP codes: P (open market buy), S (open market sale). EXCLUDE: A/M/F/G/D/C/I/V. 10b5-1 flag from `aff10b5One` XML field — excluded from signal scoring. Conviction score 1.0–10.0 (base 5.0 ± CEO/CFO/Director buy bonuses + cluster bonus ± CEO sell/multi-director sell penalties). Returns transactions_90d, net_signal_90d, total_bought/sold_90d, unique_buyers/sellers_90d, cluster_signal, conviction_score/label, monthly_net_12m, top_insiders. Payload key: `"insider"`. |
 | Adding a new module | new `.py` + `main.py` + `reporter.py` + `excel.py` | Follow pattern in ROADMAP section exactly |
 
 **Current Excel sheets (17):** Snapshot, Price Chart, Analysis, Bull vs Bear, Income Statement, Balance Sheet, Cash Flow, News & Sentiment, DCF Model, Investment Thesis, Comps Analysis, Earnings Preview, Competitive Analysis, Analyst Coverage, Earnings & Transcripts, SEC Filings, Insider Transactions.
@@ -45,7 +46,7 @@ python3 main.py AAPL --full
 python3 main.py AAPL --dry-run --pdf
 
 # Syntax check all modules
-python3 -c "import ast; [ast.parse(open(f).read()) for f in ['main.py','fetcher.py','analyzer.py','reporter.py','excel.py','dcf.py','research.py','competitive.py','analyst_coverage.py','transcript_parser.py','pitch.py','report_pdf.py','sec_parser.py']]; print('syntax ok')"
+python3 -c "import ast; [ast.parse(open(f).read()) for f in ['main.py','fetcher.py','analyzer.py','reporter.py','excel.py','dcf.py','research.py','competitive.py','analyst_coverage.py','transcript_parser.py','pitch.py','report_pdf.py','sec_parser.py','insider_tracker.py']]; print('syntax ok')"
 
 # Commit and push
 git add -p && git commit -m "message" && git push
@@ -98,6 +99,7 @@ Non-negotiable. Never relax these.
 **Phase 5: Complete.**
 - `transcript_parser.py` — earnings beat/miss + tone score (sheet 15)
 - `sec_parser.py` — SEC EDGAR 10-K/10-Q parser: risk factors, MD&A tone, business overview (sheet 16)
+- `insider_tracker.py` — Form 4 insider transactions: buy/sell signals, conviction scoring (sheet 17)
 
 **Phase 6 (next):**
 - `briefing.py` → daily news digest
@@ -128,6 +130,8 @@ Non-negotiable. Never relax these.
 - **Never add delays shorter than 150ms between EDGAR requests** — EDGAR rate limit is 10 req/sec; 150ms keeps well under it.
 - **Never pass raw 10-K text to Claude** — extract and summarize first. `sec_parser.py` is algorithmic-only; no API calls.
 - **Never use `"sec"` as a payload key for SEC filing data** — that key is already taken by `info.get("sector")`. Use `"edgar"` instead.
+- **Never count option exercises (M), awards (A), tax witholding (F), or 10b5-1 sales as buy/sell signals** — `insider_tracker.py` KEEP codes are P and S only; 10b5-1 flag (`aff10b5One`) excludes transactions from conviction scoring.
+- **FMP insider-trading endpoints are 403 (legacy plan)** — `insider_tracker.py` uses EDGAR Form 4 XML exclusively.
 - **Never read more than one file to answer a formatting question** — the answer is always in `excel.py`.
 - **Never skip `--dry-run` as the first test of any change** — always confirm the pipeline runs before spending API tokens.
 

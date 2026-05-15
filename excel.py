@@ -2818,6 +2818,238 @@ def _build_sec_sheet(wb, sec_result: dict | None, ticker: str) -> None:
         ws.column_dimensions[col].width = w
 
 
+def _build_insider_sheet(wb, insider_result: dict | None, ticker: str) -> None:
+    if not insider_result:
+        return
+
+    N  = 9
+    ws = wb.create_sheet("Insider Transactions")
+
+    _fin_title(ws, 1, f"INSIDER TRANSACTIONS  —  {ticker}", N)
+
+    if insider_result.get("error"):
+        ws.merge_cells(f"A3:{get_column_letter(N)}3")
+        c       = ws.cell(row=3, column=1)
+        c.value = f"Data unavailable: {insider_result['error']}"
+        c.font  = _f(10, color="999999")
+        return
+
+    signal  = insider_result.get("net_signal_90d", "Neutral")
+    score   = insider_result.get("conviction_score", 5.0)
+    label   = insider_result.get("conviction_label", "—")
+    bought  = insider_result.get("total_bought_90d", 0.0)
+    sold    = insider_result.get("total_sold_90d", 0.0)
+    buyers  = insider_result.get("unique_buyers_90d", 0)
+    sellers = insider_result.get("unique_sellers_90d", 0)
+    cluster = insider_result.get("cluster_signal", False)
+    txns    = insider_result.get("transactions_90d", [])
+    top_in  = insider_result.get("top_insiders", [])
+    monthly = insider_result.get("monthly_net_12m", {})
+    lg      = insider_result.get("largest_transaction") or {}
+
+    # Signal → color map
+    _SIG_COLOR = {
+        "Strong Buy":  (_GRN_BG,  _GRN_FG),
+        "Buy":         ("D9EAD3",  "274E13"),
+        "Neutral":     (_LBL_BG,   "000000"),
+        "Sell":        ("FFE0E0",  _RED_FG),
+        "Strong Sell": (_RED_BG,   _RED_FG),
+    }
+    sig_bg, sig_fg = _SIG_COLOR.get(signal, (_LBL_BG, "000000"))
+
+    # Subtitle
+    ws.merge_cells(f"A2:{get_column_letter(N)}2")
+    sub           = ws["A2"]
+    sub.value     = (f"Net Signal: {signal}  ·  Conviction: {score:.1f}/10.0 — {label}"
+                     f"  ·  90-Day: Bought ${bought/1e6:.1f}M ({buyers}) · Sold ${sold/1e6:.1f}M ({sellers})")
+    sub.font      = _f(9, color="5A6B7B")
+    sub.fill      = _fill(_SUBTITLE)
+    sub.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[2].height = 16
+
+    row = 4
+
+    # ── Section 1: Signal Summary ─────────────────────────────────────────────
+    _fin_subhdr(ws, row, "INSIDER SIGNAL SUMMARY", N); row += 1
+
+    def _kv(r, key, val, bg_v=None, fg_v="000000", bold_v=False, url=None):
+        alt   = (r % 2 == 0)
+        bg_k  = _LBL_ALT if alt else _LBL_BG
+        bg_val = bg_v if bg_v else (_ROW_ALT if alt else _WHITE)
+        ws.merge_cells(f"A{r}:C{r}")
+        k           = ws.cell(row=r, column=1)
+        k.value     = key
+        k.font      = _f(9, bold=True)
+        k.fill      = _fill(bg_k)
+        k.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+        k.border    = _BORDER
+        ws.merge_cells(f"D{r}:{get_column_letter(N)}{r}")
+        v           = ws.cell(row=r, column=4)
+        v.value     = val
+        v.font      = _f(9, bold=bold_v, color=fg_v)
+        v.fill      = _fill(bg_val)
+        v.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+        v.border    = _BORDER
+        ws.row_dimensions[r].height = 18
+        if url:
+            v.hyperlink = url
+            v.font = _f(9, color="0563C1")
+
+    _kv(row, "Net Signal (90 Days)", signal,
+        bg_v=sig_bg, fg_v=sig_fg, bold_v=True); row += 1
+    _kv(row, "Conviction Score",
+        f"{score:.1f} / 10.0  —  {label}"); row += 1
+    _kv(row, "90-Day Open Market Buys",
+        f"${bought/1e6:.2f}M  ({buyers} unique insider{'s' if buyers != 1 else ''})"); row += 1
+    _kv(row, "90-Day Open Market Sales",
+        f"${sold/1e6:.2f}M  ({sellers} unique insider{'s' if sellers != 1 else ''})"); row += 1
+    cluster_txt = ("YES — 3+ insiders buying within 30-day window (bullish signal)"
+                   if cluster else "No coordinated cluster buying detected")
+    _kv(row, "Cluster Signal",
+        cluster_txt,
+        bg_v=_GRN_BG if cluster else None,
+        fg_v=_GRN_FG if cluster else "000000"); row += 1
+
+    if lg:
+        action = "Open Market Buy" if lg["code"] == "P" else "Open Market Sale"
+        plan   = " (10b5-1 plan)" if lg["is_10b5"] else " (discretionary)"
+        _kv(row, "Largest Transaction",
+            f"{lg['name']}  ·  {lg['title']}  ·  {action}{plan}"
+            f"  ·  {lg['shares']:,.0f} shares @ ${lg['price']:.2f}"
+            f"  ·  ${lg['value']/1e6:.2f}M  ·  {lg['date']}"); row += 1
+
+    row += 1
+
+    # ── Section 2: Recent Transactions Table ──────────────────────────────────
+    _fin_subhdr(ws, row, "RECENT TRANSACTIONS — LAST 90 DAYS", N); row += 1
+    if not txns:
+        ws.merge_cells(f"A{row}:{get_column_letter(N)}{row}")
+        c       = ws.cell(row=row, column=1)
+        c.value = "No open-market transactions above $50,000 in the last 90 days."
+        c.font  = _f(9, color="999999")
+        c.fill  = _fill(_WHITE)
+        c.border = _BORDER
+        row += 1
+    else:
+        hdrs = ["Date", "Insider Name", "Title", "Type", "Shares", "Price", "Value ($)", "Signal"]
+        _fin_col_hdr(ws, row, hdrs); row += 1
+
+        _TX_BUY  = ("D9EAD3", "274E13")
+        _TX_SELL = ("FFE0E0", _RED_FG)
+
+        for i, t in enumerate(txns[:20]):
+            alt = (i % 2 == 0)
+            bg  = _ROW_ALT if alt else _WHITE
+            is_buy = t["code"] == "P"
+            tx_type = ("Open Market Buy" if is_buy else "Open Market Sale"
+                       ) + (" ★10b5-1" if t["is_10b5"] else "")
+            tx_bg, tx_fg = (_TX_BUY if is_buy else _TX_SELL)
+
+            # conviction tag per transaction
+            val = t["value"]
+            if val >= 5_000_000 and not t["is_10b5"]:
+                sig_tag = "High"
+            elif val >= 500_000 and not t["is_10b5"]:
+                sig_tag = "Medium"
+            elif t["is_10b5"]:
+                sig_tag = "Planned"
+            else:
+                sig_tag = "Low"
+
+            row_vals = [
+                t["date"],
+                t["name"],
+                t["title"][:35],
+                tx_type,
+                f"{t['shares']:,.0f}",
+                f"${t['price']:.2f}",
+                f"${val/1e6:.3f}M",
+                sig_tag,
+            ]
+            for col_i, val_str in enumerate(row_vals, start=1):
+                c           = ws.cell(row=row, column=col_i)
+                c.value     = val_str
+                c.fill      = _fill(tx_bg if col_i == 4 else bg)
+                c.font      = _f(9, color=(tx_fg if col_i == 4 else "000000"))
+                c.border    = _BORDER
+                c.alignment = Alignment(vertical="center",
+                                        horizontal="right" if col_i >= 5 else "left",
+                                        indent=(1 if col_i < 5 else 0))
+            ws.row_dimensions[row].height = 16
+            row += 1
+
+    row += 1
+
+    # ── Section 3: Monthly Net Activity Chart ────────────────────────────────
+    if monthly:
+        _fin_subhdr(ws, row, "MONTHLY NET INSIDER ACTIVITY — LAST 12 MONTHS ($M)", N)
+        chart_title_row = row; row += 1
+        chart_data_start = row
+
+        months_sorted = sorted(monthly.keys())
+        for m in months_sorted:
+            net_m = monthly[m] / 1e6
+            ws.cell(row=row, column=1).value = m
+            ws.cell(row=row, column=2).value = round(net_m, 3)
+            row += 1
+        chart_data_end = row - 1
+
+        chart = BarChart()
+        chart.type  = "col"
+        chart.title = f"{ticker} — Net Insider Activity (Last 12 Months, $M)"
+        chart.style = 10
+        chart.y_axis.title = "Net ($M)"
+        chart.x_axis.title = "Month"
+        chart.legend = None
+        chart.width  = 22
+        chart.height = 12
+
+        data_ref = Reference(ws, min_col=2, min_row=chart_data_start,
+                             max_row=chart_data_end)
+        cats_ref = Reference(ws, min_col=1, min_row=chart_data_start,
+                             max_row=chart_data_end)
+        chart.add_data(data_ref)
+        chart.set_categories(cats_ref)
+
+        ws.add_chart(chart, f"A{chart_title_row + 1}")
+        row = chart_title_row + 21  # skip chart area
+
+    row += 1
+
+    # ── Section 4: Key Insiders Table ─────────────────────────────────────────
+    if top_in:
+        _fin_subhdr(ws, row, "MOST ACTIVE INSIDERS — LAST 12 MONTHS", N); row += 1
+        hdrs2 = ["Name", "Title", "Total Bought", "Total Sold", "Net Position", "Last Transaction"]
+        _fin_col_hdr(ws, row, hdrs2); row += 1
+        for i, ins in enumerate(top_in):
+            alt = (i % 2 == 0)
+            bg  = _ROW_ALT if alt else _WHITE
+            net = ins.get("net", 0.0)
+            net_str   = f"${net/1e6:.2f}M"
+            net_color = _GRN_FG if net >= 0 else _RED_FG
+            cells_data = [
+                (ins["name"],                  "000000"),
+                (ins["title"][:35],             "000000"),
+                (f"${ins['bought']/1e6:.2f}M", _GRN_FG if ins["bought"] > 0 else "000000"),
+                (f"${ins['sold']/1e6:.2f}M",   _RED_FG if ins["sold"]   > 0 else "000000"),
+                (net_str,                       net_color),
+                (ins.get("last_date", "—"),     "000000"),
+            ]
+            for col_i, (val_str, fg) in enumerate(cells_data, start=1):
+                c           = ws.cell(row=row, column=col_i)
+                c.value     = val_str
+                c.fill      = _fill(bg)
+                c.font      = _f(9, color=fg)
+                c.border    = _BORDER
+                c.alignment = Alignment(vertical="center", horizontal="left", indent=1)
+            ws.row_dimensions[row].height = 16
+            row += 1
+
+    # ── Column widths ─────────────────────────────────────────────────────────
+    for col, w in zip("ABCDEFGHI", [14, 22, 30, 18, 12, 10, 13, 10, 4]):
+        ws.column_dimensions[col].width = w
+
+
 def build_excel(ticker: str, stats: dict, fin_data: dict,
                 price_history, sp500_history, markdown: str,
                 news_sentiment: dict | None,
@@ -2827,6 +3059,7 @@ def build_excel(ticker: str, stats: dict, fin_data: dict,
                 analyst_cov_result: dict | None,
                 transcript_result: dict | None = None,
                 sec_result: dict | None = None,
+                insider_result: dict | None = None,
                 output_path: str = "") -> None:
     wb = openpyxl.Workbook()
     if "Sheet" in wb.sheetnames:
@@ -2848,5 +3081,6 @@ def build_excel(ticker: str, stats: dict, fin_data: dict,
     _build_analyst_coverage_sheet(wb, analyst_cov_result, ticker)
     _build_transcript_sheet(wb, transcript_result, ticker)
     _build_sec_sheet(wb, sec_result, ticker)
+    _build_insider_sheet(wb, insider_result, ticker)
     wb.save(output_path)
     _polish_charts(output_path, ticker)

@@ -85,7 +85,8 @@ def _build_payload(stats: dict, fin_data: dict, news: list | None = None,
                    competitive: dict | None = None,
                    analyst_coverage: dict | None = None,
                    transcript_result: dict | None = None,
-                   sec_result: dict | None = None) -> str:
+                   sec_result: dict | None = None,
+                   insider_result: dict | None = None) -> str:
     info = stats["info"]
 
     payload: dict = {
@@ -225,6 +226,23 @@ def _build_payload(stats: dict, fin_data: dict, news: list | None = None,
             "tone":  sr.get("tone_signals", {}).get("tone_label"),
             "risks": risks_compact,
             "mda":   (sr.get("mda_summary") or "")[:200],
+        }
+
+    if insider_result and not insider_result.get("error"):
+        ir    = insider_result
+        lg    = ir.get("largest_transaction") or {}
+        top_tx = ""
+        if lg:
+            action = "bought" if lg["code"] == "P" else "sold"
+            top_tx = (f"{lg['name']} {action} ${lg['value']/1e6:.1f}M"
+                      f" on {lg['date']} (10b5-1={lg['is_10b5']})")
+        payload["insider"] = {
+            "signal":  ir.get("net_signal_90d"),
+            "score":   f"{ir.get('conviction_score'):.1f} — {ir.get('conviction_label')}",
+            "bought":  f"${ir['total_bought_90d']/1e6:.1f}M ({ir['unique_buyers_90d']} insiders)",
+            "sold":    f"${ir['total_sold_90d']/1e6:.1f}M ({ir['unique_sellers_90d']} insiders)",
+            "cluster": ir.get("cluster_signal"),
+            "top_tx":  top_tx[:120],
         }
 
     payload_json = json.dumps(payload, separators=(",", ":"))
@@ -507,6 +525,73 @@ def _competitive_md_section(comp_result: dict, comp_assessment: dict | None) -> 
 
 # ── SEC filing markdown ───────────────────────────────────────────────────────
 
+def _insider_md_section(result: dict | None) -> str:
+    if not result or result.get("error"):
+        return "---\n\n## Insider Transactions\n\n*Insider transaction data unavailable.*\n"
+
+    signal = result.get("net_signal_90d", "Neutral")
+    score  = result.get("conviction_score", 5.0)
+    label  = result.get("conviction_label", "—")
+    bought = result.get("total_bought_90d", 0.0)
+    sold   = result.get("total_sold_90d", 0.0)
+    buyers = result.get("unique_buyers_90d", 0)
+    sellers= result.get("unique_sellers_90d", 0)
+    cluster= result.get("cluster_signal", False)
+    txns   = result.get("transactions_90d", [])
+    top_in = result.get("top_insiders", [])
+    lg     = result.get("largest_transaction") or {}
+
+    lines = [
+        "---", "",
+        "## Insider Transactions", "",
+        f"**Net Signal: {signal}** | Conviction: {score:.1f}/10.0 — {label}",
+        f"**90-Day Activity:** Bought ${bought/1e6:.1f}M ({buyers} insiders)"
+        f" · Sold ${sold/1e6:.1f}M ({sellers} insiders)",
+        f"**Cluster Signal:** {'YES — 3+ insiders buying within 30 days (bullish)' if cluster else 'No'}",
+        "",
+    ]
+
+    if lg:
+        action = "bought" if lg["code"] == "P" else "sold"
+        flag = " *(10b5-1 plan)*" if lg["is_10b5"] else " *(open market)*"
+        lines += [
+            f"**Largest Transaction:** {lg['name']} ({lg['title']}) {action} "
+            f"${lg['value']/1e6:.1f}M on {lg['date']}{flag}",
+            "",
+        ]
+
+    if txns:
+        lines += [
+            "### Recent Transactions (90 Days)", "",
+            "| Date | Insider | Title | Type | Shares | Price | Value |",
+            "|---|---|---|---|---|---|---|",
+        ]
+        for t in txns[:15]:
+            tx_type = ("Open Market Buy" if t["code"] == "P"
+                       else "Open Market Sale") + (" *(10b5-1)*" if t["is_10b5"] else "")
+            lines.append(
+                f"| {t['date']} | {t['name']} | {t['title'][:30]} | {tx_type} "
+                f"| {t['shares']:,.0f} | ${t['price']:.2f} | ${t['value']/1e6:.2f}M |"
+            )
+        lines.append("")
+
+    if top_in:
+        lines += [
+            "### Most Active Insiders (12 Months)", "",
+            "| Name | Title | Bought | Sold | Net |",
+            "|---|---|---|---|---|",
+        ]
+        for ins in top_in:
+            net_str = f"${ins['net']/1e6:.1f}M" if ins["net"] >= 0 else f"(${abs(ins['net'])/1e6:.1f}M)"
+            lines.append(
+                f"| {ins['name']} | {ins['title'][:30]} "
+                f"| ${ins['bought']/1e6:.1f}M | ${ins['sold']/1e6:.1f}M | {net_str} |"
+            )
+        lines.append("")
+
+    return "\n".join(lines)
+
+
 def _sec_md_section(result: dict | None) -> str:
     if not result or result.get("error"):
         return "---\n\n## SEC Filings\n\n*SEC filing data unavailable.*\n"
@@ -731,9 +816,11 @@ def build_report(ticker: str, stats: dict, fin_data: dict,
                  analyst_coverage: dict | None = None,
                  transcript_result: dict | None = None,
                  sec_result: dict | None = None,
+                 insider_result: dict | None = None,
                  dry_run: bool = False) -> tuple[str, dict | None, dict | None, dict | None]:
     payload_json = _build_payload(stats, fin_data, news, dcf_result, competitive,
-                                  analyst_coverage, transcript_result, sec_result)
+                                  analyst_coverage, transcript_result, sec_result,
+                                  insider_result)
 
     if dry_run:
         print("=== DRY RUN: Claude payload ===")
@@ -917,6 +1004,7 @@ def build_report(ticker: str, stats: dict, fin_data: dict,
     cov_md        = "\n" + _analyst_coverage_md_section(analyst_coverage, cov_assessment) if analyst_coverage else ""
     transcript_md = "\n" + _transcript_md_section(transcript_result) if transcript_result else ""
     sec_md        = "\n" + _sec_md_section(sec_result)              if sec_result        else ""
+    insider_md    = "\n" + _insider_md_section(insider_result)      if insider_result    else ""
     markdown = (
         f"# {ticker} Stock Analysis — {date.today()}\n\n"
         f"{analysis}\n\n"
@@ -927,5 +1015,6 @@ def build_report(ticker: str, stats: dict, fin_data: dict,
         f"{cov_md}"
         f"{transcript_md}"
         f"{sec_md}"
+        f"{insider_md}"
     )
     return markdown, sent_data, comp_assessment, cov_assessment
