@@ -214,8 +214,11 @@ def run() -> None:
     # Extract tone label from briefing (first word after "MARKET TONE: ")
     tone = "—"
     for line in briefing_text.splitlines():
-        if line.startswith("MARKET TONE:"):
-            tone = line.split(":")[1].strip().split("|")[0].strip()
+        # Handle plain "MARKET TONE:" or bold "**MARKET TONE:**"
+        clean = line.strip().strip("*").strip()
+        if clean.upper().startswith("MARKET TONE:"):
+            after = clean.split(":", 1)[1].strip().strip("*").strip()
+            tone = after.split("|")[0].strip().strip("*").strip()
             break
 
     notif_title   = f"Morning Brief — {tone}"

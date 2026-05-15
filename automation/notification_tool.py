@@ -28,7 +28,6 @@ from automation.common import (
     get_tickers,
     is_market_hours,
     notify,
-    send_mac_notification,
     send_phone_notification,
 )
 
@@ -370,7 +369,6 @@ def run() -> None:
         title    = alert["title"]
         message  = alert["message"]
         priority = alert.get("priority", "default")
-        send_mac_notification(title, message)
         send_phone_notification(title, message, priority)
         _mark_sent(cache, key)
         print(f"  [sent] {title}")

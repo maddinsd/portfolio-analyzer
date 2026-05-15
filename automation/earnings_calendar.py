@@ -24,7 +24,6 @@ from automation.common import (
     fmt_pct,
     get_tickers,
     notify,
-    send_mac_notification,
 )
 
 _ET = ZoneInfo("America/New_York")
@@ -270,7 +269,7 @@ def run() -> None:
             days = _days_until(info["date"])
             eps_est = info.get("eps_est")
             eps_str = f"EPS est ${eps_est:.2f}" if eps_est else ""
-            send_mac_notification(
+            notify(
                 f"Earnings in {days} days — {sym}",
                 f"{sym} reports {info['date'][:10]} {_time_label(info.get('time',''))} | {eps_str}",
             )

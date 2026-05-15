@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -33,14 +32,6 @@ def get_alert_thresholds() -> dict:
 
 # ── Notifications ─────────────────────────────────────────────────────────────
 
-def send_mac_notification(title: str, message: str) -> None:
-    script = f'display notification "{message}" with title "{title}"'
-    try:
-        subprocess.run(["osascript", "-e", script], check=False, timeout=5)
-    except Exception:
-        pass
-
-
 def send_phone_notification(title: str, message: str,
                             priority: str = "default") -> bool:
     """POST to ntfy.sh. priority: 'default', 'high', 'urgent'."""
@@ -61,8 +52,6 @@ def send_phone_notification(title: str, message: str,
 
 
 def notify(title: str, message: str, priority: str = "default") -> None:
-    """Send both Mac desktop and phone notifications."""
-    send_mac_notification(title, message)
     send_phone_notification(title, message, priority)
 
 
