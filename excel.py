@@ -2414,6 +2414,217 @@ def _build_analyst_coverage_sheet(wb, cov_result: dict | None, ticker: str) -> N
         ws.column_dimensions[col].width = w
 
 
+def _build_transcript_sheet(wb, transcript_result: dict | None, ticker: str) -> None:
+    if not transcript_result:
+        return
+
+    N  = 8
+    ws = wb.create_sheet("Earnings & Transcripts")
+
+    _fin_title(ws, 1, f"EARNINGS BEAT/MISS ANALYSIS  —  {ticker}", N)
+
+    if transcript_result.get("error"):
+        ws.merge_cells(f"A3:{get_column_letter(N)}3")
+        c       = ws.cell(row=3, column=1)
+        c.value = f"Data unavailable: {transcript_result['error']}"
+        c.font  = _f(10, color="999999")
+        return
+
+    streak   = transcript_result.get("beat_streak", 0)
+    beats    = transcript_result.get("beat_count", 0)
+    total_q  = transcript_result.get("total_quarters", 0)
+    tone_lbl = transcript_result.get("tone_label", "—")
+    tone_sc  = transcript_result.get("tone_score")
+    guidance = transcript_result.get("guidance_signals", [])
+    nxt      = transcript_result.get("next_earnings_date") or "—"
+    history  = transcript_result.get("beat_miss_history", [])
+
+    tone_sc_str = f"{tone_sc:+.2f}" if tone_sc is not None else "—"
+
+    # Subtitle row
+    ws.merge_cells(f"A2:{get_column_letter(N)}2")
+    sub           = ws["A2"]
+    sub.value     = (f"Tone: {tone_lbl}  ({tone_sc_str})  ·  "
+                     f"Beat Streak: {streak}  ·  {beats}/{total_q} beats  ·  "
+                     f"Next Earnings: {nxt}")
+    sub.font      = _f(9, color="5A6B7B")
+    sub.fill      = _fill(_SUBTITLE)
+    sub.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[2].height = 16
+
+    row = 4
+
+    # ── Section 1: Summary KPIs ──────────────────────────────────────────────
+    _fin_subhdr(ws, row, "EARNINGS QUALITY SUMMARY", N)
+    row += 1
+
+    def _kv(r, key, val, alt=False, green=False, red=False):
+        bg_k = _LBL_ALT if alt else _LBL_BG
+        bg_v = _GRN_BG if green else (_RED_BG if red else (_ROW_ALT if alt else _WHITE))
+        fg_v = _GRN_FG if green else (_RED_FG if red else "000000")
+        ws.merge_cells(f"A{r}:B{r}")
+        k           = ws.cell(row=r, column=1)
+        k.value     = key
+        k.font      = _f(9, bold=True)
+        k.fill      = _fill(bg_k)
+        k.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+        k.border    = _BORDER
+        ws.merge_cells(f"C{r}:{get_column_letter(N)}{r}")
+        v           = ws.cell(row=r, column=3)
+        v.value     = val
+        v.font      = _f(9, color=fg_v)
+        v.fill      = _fill(bg_v)
+        v.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+        v.border    = _BORDER
+        ws.row_dimensions[r].height = 18
+
+    is_positive = tone_sc is not None and tone_sc >= 0.2
+    is_negative = tone_sc is not None and tone_sc <= -0.2
+    _kv(row, "Tone Score",        f"{tone_lbl} ({tone_sc_str})",
+        green=is_positive, red=is_negative); row += 1
+    _kv(row, "Beat Streak",       f"{streak} consecutive quarters",
+        alt=True, green=streak >= 3); row += 1
+    _kv(row, "Beat Count (8Q)",   f"{beats} of {total_q} quarters beat estimate",
+        green=beats >= 6, red=beats <= 3); row += 1
+    _kv(row, "Next Earnings",     nxt, alt=True); row += 1
+
+    if guidance:
+        row += 1
+        _fin_subhdr(ws, row, "KEY SIGNALS", N)
+        row += 1
+        for i, sig in enumerate(guidance):
+            ws.merge_cells(f"A{row}:{get_column_letter(N)}{row}")
+            c           = ws.cell(row=row, column=1)
+            c.value     = f"• {sig}"
+            c.font      = _f(9)
+            c.fill      = _fill(_ROW_ALT if i % 2 else _WHITE)
+            c.alignment = Alignment(horizontal="left", vertical="center", indent=2,
+                                    wrap_text=True)
+            c.border    = _BORDER
+            ws.row_dimensions[row].height = 18
+            row += 1
+
+    row += 1
+
+    # ── Section 2: Beat/Miss History Table ───────────────────────────────────
+    if history:
+        _fin_subhdr(ws, row, "QUARTERLY EPS BEAT/MISS HISTORY", N)
+        row += 1
+        _fin_col_hdr(ws, row, ["Date", "EPS Estimate", "Reported EPS",
+                                "Surprise %", "Beat/Miss",
+                                "Revenue ($M)", "Rev Growth %", ""])
+        hdr_row = row
+        row += 1
+
+        def _fmte(v):
+            return "N/A" if v is None else f"${v:.2f}"
+
+        def _fmts(v):
+            return "N/A" if v is None else f"{v:+.1f}%"
+
+        def _fmtr(v):
+            return "N/A" if v is None else f"${v:.0f}M"
+
+        # Write data rows + capture chart data positions
+        chart_data_start = row
+        for i, q in enumerate(history):
+            alt         = i % 2 == 1
+            beat_val    = q.get("beat")
+            beat_str    = "Beat" if beat_val is True else ("Miss" if beat_val is False else "—")
+            surp        = q.get("eps_surprise")
+            surp_str    = _fmts(surp)
+            rev_growth  = q.get("rev_growth")
+
+            row_data = [
+                q.get("date", "—"),
+                _fmte(q.get("eps_est")),
+                _fmte(q.get("eps_actual")),
+                surp_str,
+                beat_str,
+                _fmtr(q.get("rev_actual")),
+                _fmts(rev_growth),
+                "",
+            ]
+
+            for ci, val in enumerate(row_data):
+                c           = ws.cell(row=row, column=ci + 1)
+                c.value     = val
+                c.border    = _BORDER
+                c.alignment = Alignment(
+                    horizontal="left" if ci == 0 else "right",
+                    vertical="center"
+                )
+
+                if ci == 3:  # Surprise % — color by sign
+                    if surp is not None and surp > 0:
+                        c.font = _f(9, bold=True, color=_GRN_FG)
+                        c.fill = _fill(_GRN_BG)
+                    elif surp is not None and surp < 0:
+                        c.font = _f(9, bold=True, color=_RED_FG)
+                        c.fill = _fill(_RED_BG)
+                    else:
+                        c.font = _f(9); c.fill = _fill(_ROW_ALT if alt else _WHITE)
+                elif ci == 4:  # Beat/Miss
+                    if beat_val is True:
+                        c.font = _f(9, bold=True, color=_GRN_FG)
+                        c.fill = _fill(_GRN_BG)
+                    elif beat_val is False:
+                        c.font = _f(9, bold=True, color=_RED_FG)
+                        c.fill = _fill(_RED_BG)
+                    else:
+                        c.font = _f(9); c.fill = _fill(_ROW_ALT if alt else _WHITE)
+                elif ci == 6:  # Rev Growth — color by sign
+                    if rev_growth is not None and rev_growth > 0:
+                        c.font = _f(9, color=_GRN_FG); c.fill = _fill(_GRN_BG)
+                    elif rev_growth is not None and rev_growth < 0:
+                        c.font = _f(9, color=_RED_FG); c.fill = _fill(_RED_BG)
+                    else:
+                        c.font = _f(9); c.fill = _fill(_ROW_ALT if alt else _WHITE)
+                else:
+                    c.font = _f(9)
+                    c.fill = _fill(_ROW_ALT if alt else _WHITE)
+
+            ws.row_dimensions[row].height = 17
+            row += 1
+
+        chart_data_end = row - 1
+
+        row += 2
+
+        # ── Section 3: EPS Surprise Chart ────────────────────────────────────
+        if len(history) >= 2:
+            # Write chart source data to hidden columns (J, K)
+            chart_src_row = row
+            for i, q in enumerate(history):
+                ws.cell(row=chart_src_row + i, column=10).value = q.get("date", "")
+                surp = q.get("eps_surprise")
+                ws.cell(row=chart_src_row + i, column=11).value = surp
+
+            n_pts = len(history)
+            bar_chart = BarChart()
+            bar_chart.type     = "col"
+            bar_chart.title    = "EPS Surprise % — Last 8 Quarters"
+            bar_chart.y_axis.title = "Surprise %"
+            bar_chart.x_axis.title = "Earnings Date"
+            bar_chart.width    = 18
+            bar_chart.height   = 10
+            bar_chart.legend   = None
+
+            data_ref = Reference(ws, min_col=11, min_row=chart_src_row,
+                                 max_row=chart_src_row + n_pts - 1)
+            cats_ref = Reference(ws, min_col=10, min_row=chart_src_row,
+                                 max_row=chart_src_row + n_pts - 1)
+            bar_chart.add_data(data_ref)
+            bar_chart.set_categories(cats_ref)
+
+            ws.add_chart(bar_chart, f"A{row}")
+            row += 18
+
+    # ── Column widths ─────────────────────────────────────────────────────────
+    for col, w in zip("ABCDEFGH", [16, 14, 14, 13, 11, 15, 15, 4]):
+        ws.column_dimensions[col].width = w
+
+
 def build_excel(ticker: str, stats: dict, fin_data: dict,
                 price_history, sp500_history, markdown: str,
                 news_sentiment: dict | None,
@@ -2421,7 +2632,8 @@ def build_excel(ticker: str, stats: dict, fin_data: dict,
                 research: dict | None,
                 comp_result: dict | None,
                 analyst_cov_result: dict | None,
-                output_path: str) -> None:
+                transcript_result: dict | None = None,
+                output_path: str = "") -> None:
     wb = openpyxl.Workbook()
     if "Sheet" in wb.sheetnames:
         del wb["Sheet"]
@@ -2440,5 +2652,6 @@ def build_excel(ticker: str, stats: dict, fin_data: dict,
     _build_earnings_sheet(wb, research)
     _build_competitive_sheet(wb, comp_result)
     _build_analyst_coverage_sheet(wb, analyst_cov_result, ticker)
+    _build_transcript_sheet(wb, transcript_result, ticker)
     wb.save(output_path)
     _polish_charts(output_path, ticker)

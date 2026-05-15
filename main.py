@@ -46,6 +46,7 @@ def main() -> int:
     from research import run_research_pipeline
     from competitive import run_competitive
     from analyst_coverage import run_analyst_coverage
+    from transcript_parser import run_transcript_parser
     from pitch import run_pitch
     from report_pdf import run_pdf
 
@@ -94,10 +95,21 @@ def main() -> int:
         cons = analyst_cov_result.get("consensus_rating", "—")
         print(f"  {n_an} analysts · consensus: {cons}")
 
+    print("Parsing earnings history...")
+    transcript_result = run_transcript_parser(ticker, stats, fin_data)
+    if transcript_result.get("error"):
+        print(f"  Earnings history: {transcript_result['error']}")
+    else:
+        streak = transcript_result.get("beat_streak", 0)
+        beats  = transcript_result.get("beat_count", 0)
+        total  = transcript_result.get("total_quarters", 0)
+        tone   = transcript_result.get("tone_label", "—")
+        print(f"  {beats}/{total} beats · streak: {streak} · tone: {tone}")
+
     print("Generating analysis...")
     markdown, news_sentiment, comp_assessment, cov_assessment = build_report(
         ticker, stats, fin_data, news, dcf_result, research, comp_result,
-        analyst_cov_result, dry_run=args.dry_run
+        analyst_cov_result, transcript_result, dry_run=args.dry_run
     )
     if comp_assessment and not comp_result.get("error"):
         comp_result["claude"] = comp_assessment
@@ -117,10 +129,12 @@ def main() -> int:
         n_sheets += 1
     if analyst_cov_result:   # sheet always created (shows error note if failed)
         n_sheets += 1
+    if transcript_result:    # sheet always created (shows error note if failed)
+        n_sheets += 1
     print(f"Building Excel report ({n_sheets} sheets)...")
     build_excel(ticker, stats, fin_data, data["price_history"], data["sp500_history"],
                 markdown, news_sentiment, dcf_result, research, comp_result,
-                analyst_cov_result, str(xl_path))
+                analyst_cov_result, transcript_result, str(xl_path))
     shutil.copy2(xl_path, xl_latest)
     print(f"Saved: {xl_path}")
     print(f"  → {xl_latest.name}")

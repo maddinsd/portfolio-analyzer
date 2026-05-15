@@ -83,7 +83,8 @@ def _fmt_pct_plain(val) -> str:
 def _build_payload(stats: dict, fin_data: dict, news: list | None = None,
                    dcf_result: dict | None = None,
                    competitive: dict | None = None,
-                   analyst_coverage: dict | None = None) -> str:
+                   analyst_coverage: dict | None = None,
+                   transcript_result: dict | None = None) -> str:
     info = stats["info"]
 
     payload: dict = {
@@ -197,6 +198,18 @@ def _build_payload(stats: dict, fin_data: dict, news: list | None = None,
             },
             "up":     _fmt_pct(cov.get("upside_pct")),
             "spread": _fmt_pct(cov.get("target_spread_pct")),
+        }
+
+    if transcript_result and not transcript_result.get("error"):
+        tr = transcript_result
+        payload["transcript"] = {
+            "streak": tr.get("beat_streak", 0),
+            "beats":  tr.get("beat_count", 0),
+            "of":     tr.get("total_quarters", 0),
+            "tone":   tr.get("tone_label"),
+            "score":  tr.get("tone_score"),
+            "surp":   tr.get("last_eps_surprise"),
+            "next":   tr.get("next_earnings_date"),
         }
 
     payload_json = json.dumps(payload, separators=(",", ":"))
@@ -477,6 +490,70 @@ def _competitive_md_section(comp_result: dict, comp_assessment: dict | None) -> 
     return "\n".join(lines)
 
 
+# ── Transcript / earnings beat-miss markdown ─────────────────────────────────
+
+def _transcript_md_section(result: dict | None) -> str:
+    if not result or result.get("error"):
+        return "---\n\n## Earnings Beat/Miss History\n\n*Earnings history unavailable.*\n"
+
+    streak   = result.get("beat_streak", 0)
+    misses   = result.get("miss_streak", 0)
+    beats    = result.get("beat_count", 0)
+    total    = result.get("total_quarters", 0)
+    tone     = result.get("tone_label", "N/A")
+    score    = result.get("tone_score")
+    guidance = result.get("guidance_signals", [])
+    nxt      = result.get("next_earnings_date")
+    history  = result.get("beat_miss_history", [])
+
+    def _ps(v):
+        return "N/A" if v is None else f"{v:+.1f}%"
+
+    def _pm(v):
+        return "N/A" if v is None else f"${v:.0f}M"
+
+    lines = [
+        "---", "",
+        "## Earnings Beat/Miss History", "",
+        (f"**Tone: {tone}** (score: {score:+.2f})  |  "
+         f"**Beat Streak: {streak}**  |  **{beats}/{total} beats**"
+         if score is not None else
+         f"**Tone: {tone}**  |  **Beat Streak: {streak}**  |  **{beats}/{total} beats**"),
+        "",
+    ]
+
+    if nxt:
+        lines += [f"**Next Earnings Date:** {nxt}", ""]
+
+    if guidance:
+        lines += ["**Key Signals:**"]
+        for sig in guidance:
+            lines.append(f"- {sig}")
+        lines.append("")
+
+    if history:
+        lines += [
+            "### Quarterly EPS Beat/Miss",
+            "",
+            "| Date | EPS Est | Reported EPS | Surprise % | Beat/Miss | Revenue | Rev Growth |",
+            "|---|---|---|---|---|---|---|",
+        ]
+        for q in history:
+            beat_str = "Beat" if q.get("beat") is True else ("Miss" if q.get("beat") is False else "—")
+            lines.append(
+                f"| {q.get('date','—')} "
+                f"| ${q.get('eps_est') or 'N/A'} "
+                f"| ${q.get('eps_actual') or 'N/A'} "
+                f"| {_ps(q.get('eps_surprise'))} "
+                f"| {beat_str} "
+                f"| {_pm(q.get('rev_actual'))} "
+                f"| {_ps(q.get('rev_growth'))} |"
+            )
+        lines.append("")
+
+    return "\n".join(lines)
+
+
 # ── Analyst coverage markdown ─────────────────────────────────────────────────
 
 def _analyst_coverage_md_section(cov_result: dict, cov_assessment: dict | None) -> str:
@@ -576,8 +653,10 @@ def build_report(ticker: str, stats: dict, fin_data: dict,
                  news: list | None = None, dcf_result: dict | None = None,
                  research: dict | None = None, competitive: dict | None = None,
                  analyst_coverage: dict | None = None,
+                 transcript_result: dict | None = None,
                  dry_run: bool = False) -> tuple[str, dict | None, dict | None, dict | None]:
-    payload_json = _build_payload(stats, fin_data, news, dcf_result, competitive, analyst_coverage)
+    payload_json = _build_payload(stats, fin_data, news, dcf_result, competitive,
+                                  analyst_coverage, transcript_result)
 
     if dry_run:
         print("=== DRY RUN: Claude payload ===")
@@ -759,6 +838,7 @@ def build_report(ticker: str, stats: dict, fin_data: dict,
     research_md   = "\n" + _research_md_sections(research) if research else ""
     comp_md       = "\n" + _competitive_md_section(competitive, comp_assessment) if competitive else ""
     cov_md        = "\n" + _analyst_coverage_md_section(analyst_coverage, cov_assessment) if analyst_coverage else ""
+    transcript_md = "\n" + _transcript_md_section(transcript_result) if transcript_result else ""
     markdown = (
         f"# {ticker} Stock Analysis — {date.today()}\n\n"
         f"{analysis}\n\n"
@@ -767,5 +847,6 @@ def build_report(ticker: str, stats: dict, fin_data: dict,
         f"{research_md}"
         f"{comp_md}"
         f"{cov_md}"
+        f"{transcript_md}"
     )
     return markdown, sent_data, comp_assessment, cov_assessment
