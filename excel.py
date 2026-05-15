@@ -1988,6 +1988,117 @@ def _gs_comp_chart_xml(xml_str: str) -> str:
     )
 
 
+def _gs_analyst_chart_xml(xml_str: str) -> str:
+    """GS-style analyst price target range: 4-bar chart with per-bar color coding."""
+    refs = _extract_refs(xml_str)
+    # Single-series openpyxl chart with titles_from_data=True generates:
+    # refs[0]=title cell, refs[1]=category range, refs[2]=value range
+    s1_cat = refs[1] if len(refs) > 1 else "'Analyst Coverage'!$A$1:$A$4"
+    s1_val = refs[2] if len(refs) > 2 else "'Analyst Coverage'!$B$1:$B$4"
+
+    # Per-bar colors: High=light-green, Mean=navy, Low=light-red, Current=steel
+    dpt_xml = (
+        "<dPt><idx val='0'/><spPr>"
+        "<a:solidFill><a:srgbClr val='E2F0D9'/></a:solidFill>"
+        "<a:ln><a:noFill/></a:ln></spPr></dPt>"
+        "<dPt><idx val='1'/><spPr>"
+        "<a:solidFill><a:srgbClr val='003366'/></a:solidFill>"
+        "<a:ln><a:noFill/></a:ln></spPr></dPt>"
+        "<dPt><idx val='2'/><spPr>"
+        "<a:solidFill><a:srgbClr val='FFE0E0'/></a:solidFill>"
+        "<a:ln><a:noFill/></a:ln></spPr></dPt>"
+        "<dPt><idx val='3'/><spPr>"
+        "<a:solidFill><a:srgbClr val='8EB4E3'/></a:solidFill>"
+        "<a:ln><a:noFill/></a:ln></spPr></dPt>"
+    )
+    dlbls = (
+        "<dLbls>"
+        "<numFmt formatCode='$#,##0.00' sourceLinked='0'/>"
+        "<spPr><a:noFill/><a:ln><a:noFill/></a:ln></spPr>"
+        "<txPr><a:bodyPr/><a:lstStyle/>"
+        "<a:p><a:pPr>"
+        "<a:defRPr sz='900' b='1'>"
+        "<a:solidFill><a:srgbClr val='2C2C2C'/></a:solidFill>"
+        "<a:latin typeface='Calibri'/>"
+        "</a:defRPr></a:pPr></a:p></txPr>"
+        "<showLegendKey val='0'/><showVal val='1'/>"
+        "<showCatName val='0'/><showSerName val='0'/>"
+        "<showPercent val='0'/><showBubbleSize val='0'/>"
+        "<dLblPos val='outEnd'/>"
+        "</dLbls>"
+    )
+    ser1 = (
+        "<ser>"
+        "<idx val='0'/><order val='0'/>"
+        + dpt_xml + dlbls
+        + f"<cat><strRef><f>{s1_cat}</f></strRef></cat>"
+        + f"<val><numRef><f>{s1_val}</f></numRef></val>"
+        + "</ser>"
+    )
+    cat_ax = (
+        "<catAx>"
+        "<axId val='10'/>"
+        "<scaling><orientation val='minMax'/></scaling>"
+        "<delete val='0'/>"
+        "<axPos val='b'/>"
+        "<spPr><a:ln><a:noFill/></a:ln></spPr>"
+        + _txpr(1000, "2C2C2C") +
+        "<majorTickMark val='none'/><minorTickMark val='none'/>"
+        "<tickLblPos val='low'/><crossAx val='100'/>"
+        "<auto val='0'/><noMultiLvlLbl val='1'/>"
+        "</catAx>"
+    )
+    val_ax = (
+        "<valAx>"
+        "<axId val='100'/>"
+        "<scaling><orientation val='minMax'/></scaling>"
+        "<delete val='0'/><axPos val='l'/>"
+        "<majorGridlines>"
+        "<spPr><a:ln w='9525'>"
+        "<a:solidFill><a:srgbClr val='E8E8E8'/></a:solidFill>"
+        "<a:prstDash val='solid'/>"
+        "</a:ln></spPr>"
+        "</majorGridlines>"
+        "<spPr><a:ln><a:noFill/></a:ln></spPr>"
+        + _txpr(900, "595959") +
+        "<numFmt formatCode='$#,##0.00' sourceLinked='0'/>"
+        "<majorTickMark val='none'/><minorTickMark val='none'/>"
+        "<crossAx val='10'/>"
+        "</valAx>"
+    )
+    plot_area_spr = (
+        "<spPr>"
+        "<a:solidFill><a:srgbClr val='FFFFFF'/></a:solidFill>"
+        "<a:ln><a:noFill/></a:ln>"
+        "<a:effectLst/>"
+        "</spPr>"
+    )
+    return (
+        _CHART_HDR
+        + "<roundedCorners val='0'/>"
+        + "<chart>"
+        + "<autoTitleDeleted val='1'/>"
+        + "<plotArea>"
+        + "<layout/>"
+        + plot_area_spr
+        + "<barChart>"
+        + "<barDir val='col'/>"
+        + "<grouping val='clustered'/>"
+        + "<varyColors val='0'/>"
+        + ser1
+        + "<gapWidth val='100'/>"
+        + "<axId val='10'/><axId val='100'/>"
+        + "</barChart>"
+        + cat_ax + val_ax
+        + "</plotArea>"
+        + "<plotVisOnly val='1'/>"
+        + "<dispBlanksAs val='gap'/>"
+        + "</chart>"
+        + _CHART_SPACE_SPR
+        + _CHART_FTR
+    )
+
+
 def _polish_charts(output_path: str, ticker: str) -> None:
     """Replace openpyxl chart XML in the saved xlsx with GS-style professional OOXML."""
     tmp = output_path + ".~tmp"
@@ -2002,7 +2113,10 @@ def _polish_charts(output_path: str, ticker: str) -> None:
                         if "<lineChart>" in xml_str:
                             data = _gs_price_chart_xml(xml_str, ticker).encode("utf-8")
                         elif "<barChart>" in xml_str:
-                            data = _gs_comp_chart_xml(xml_str).encode("utf-8")
+                            if "'Analyst Coverage'" in xml_str:
+                                data = _gs_analyst_chart_xml(xml_str).encode("utf-8")
+                            else:
+                                data = _gs_comp_chart_xml(xml_str).encode("utf-8")
                     zout.writestr(item, data)
         os.replace(tmp, output_path)
     except Exception:
@@ -2011,12 +2125,302 @@ def _polish_charts(output_path: str, ticker: str) -> None:
         raise
 
 
+def _build_analyst_coverage_sheet(wb, cov_result: dict | None, ticker: str) -> None:
+    if not cov_result:
+        return
+
+    N  = 8   # columns A–H
+    ws = wb.create_sheet("Analyst Coverage")
+
+    _fin_title(ws, 1, f"ANALYST COVERAGE  —  {ticker}", N)
+
+    if cov_result.get("error"):
+        ws.merge_cells(f"A3:{get_column_letter(N)}3")
+        c       = ws.cell(row=3, column=1)
+        c.value = f"Data unavailable: {cov_result['error']}"
+        c.font  = _f(10, color="999999")
+        return
+
+    rating    = cov_result.get("consensus_rating") or "N/A"
+    bull      = cov_result.get("bull_ratio")
+    buy_c     = cov_result.get("buy_count", 0)
+    hold_c    = cov_result.get("hold_count", 0)
+    sell_c    = cov_result.get("sell_count", 0)
+    total     = cov_result.get("total_analysts", 0)
+    mean_tgt  = cov_result.get("mean_target")
+    high_tgt  = cov_result.get("high_target")
+    low_tgt   = cov_result.get("low_target")
+    current   = cov_result.get("current_price")
+    upside    = cov_result.get("upside_pct")
+    spread    = cov_result.get("target_spread_pct")
+    estimates = cov_result.get("estimates", [])
+    recent    = cov_result.get("recent_targets", [])
+    claude    = cov_result.get("claude") or {}
+
+    def _dp(v):
+        return "N/A" if v is None else f"${v:.2f}"
+
+    def _pp(v, sign=False):
+        if v is None:
+            return "N/A"
+        return f"{v:+.1f}%" if sign else f"{v:.1f}%"
+
+    # ── Subtitle ─────────────────────────────────────────────────────────────
+    sub_text = (
+        f"Consensus: {rating}  ·  {total} analysts  ·  "
+        f"Bull ratio: {_pp(bull)}  ·  Mean target: {_dp(mean_tgt)}  ·  "
+        f"Upside: {_pp(upside, sign=True)}"
+    )
+    ws.merge_cells(f"A2:{get_column_letter(N)}2")
+    sub           = ws["A2"]
+    sub.value     = sub_text
+    sub.font      = _f(9, color="5A6B7B")
+    sub.fill      = _fill(_SUBTITLE)
+    sub.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[2].height = 16
+
+    row = 4   # row 3 is spacer
+
+    # ── Section 1: Coverage Summary (KV pairs) ────────────────────────────────
+    _fin_subhdr(ws, row, "COVERAGE SUMMARY", N)
+    row += 1
+
+    def _kv(r, key, val, alt=False, navy=False, green=False, red=False):
+        if navy:
+            bg_k, bg_v, fg_k, fg_v = _NAVY, _NAVY, _WHITE, _WHITE
+        elif green:
+            bg_k, bg_v, fg_k, fg_v = _GRN_BG, _GRN_BG, _GRN_FG, _GRN_FG
+        elif red:
+            bg_k, bg_v, fg_k, fg_v = _RED_BG, _RED_BG, _RED_FG, _RED_FG
+        elif alt:
+            bg_k, bg_v, fg_k, fg_v = _LBL_ALT, _ROW_ALT, "000000", "000000"
+        else:
+            bg_k, bg_v, fg_k, fg_v = _LBL_BG, _WHITE, "000000", "000000"
+
+        ws.merge_cells(f"A{r}:B{r}")
+        k           = ws.cell(row=r, column=1)
+        k.value     = key
+        k.font      = _f(9, bold=True, color=fg_k)
+        k.fill      = _fill(bg_k)
+        k.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+        k.border    = _BORDER
+
+        ws.merge_cells(f"C{r}:{get_column_letter(N)}{r}")
+        v           = ws.cell(row=r, column=3)
+        v.value     = val
+        v.font      = _f(9, color=fg_v)
+        v.fill      = _fill(bg_v)
+        v.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+        v.border    = _BORDER
+        ws.row_dimensions[r].height = 18
+
+    # Consensus rating coloring
+    is_buy  = rating == "Buy"
+    is_sell = rating == "Sell"
+    _kv(row, "Consensus Rating", rating, navy=not is_buy and not is_sell,
+        green=is_buy, red=is_sell); row += 1
+    _kv(row, "Signal (Claude)",   claude.get("signal", "—"), alt=False); row += 1
+    _kv(row, "Bull Ratio",        _pp(bull), alt=True); row += 1
+    _kv(row, "Revision Bias",     claude.get("revision_bias", "—")); row += 1
+
+    summary_text = claude.get("summary", "")
+    if summary_text:
+        ws.merge_cells(f"A{row}:{get_column_letter(N)}{row}")
+        c           = ws.cell(row=row, column=1)
+        c.value     = summary_text
+        c.font      = _f(9, color="2C3E50")
+        c.fill      = _fill(_SUBTITLE)
+        c.alignment = Alignment(horizontal="left", vertical="center",
+                                wrap_text=True, indent=2)
+        n_lines = max(2, math.ceil(len(summary_text) / 110))
+        ws.row_dimensions[row].height = max(36, n_lines * 15 + 6)
+        row += 1
+
+    row += 1  # spacer
+
+    # ── Section 2: Rating Distribution ───────────────────────────────────────
+    _fin_subhdr(ws, row, "RATING DISTRIBUTION", N)
+    row += 1
+    _fin_col_hdr(ws, row, ["Buy", "Hold", "Sell", "Total Analysts", "Bull Ratio",
+                            "Mean Target", "Upside", "Target Spread"])
+    row += 1
+
+    vals = [buy_c, hold_c, sell_c, total, _pp(bull), _dp(mean_tgt),
+            _pp(upside, sign=True), _pp(spread)]
+    bgs  = [_GRN_BG, _WHITE, _RED_BG, _WHITE, _WHITE, _WHITE, _WHITE, _WHITE]
+    fgs  = [_GRN_FG, "000000", _RED_FG, "000000", "000000", "000000", "000000", "000000"]
+    for ci, (val, bg, fg) in enumerate(zip(vals, bgs, fgs)):
+        c           = ws.cell(row=row, column=ci + 1)
+        c.value     = val
+        c.font      = _f(9, bold=(ci < 3), color=fg)
+        c.fill      = _fill(bg)
+        c.border    = _BORDER
+        c.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[row].height = 20
+    row += 1
+
+    row += 1  # spacer
+
+    # ── Section 3: Price Target Summary ──────────────────────────────────────
+    _fin_subhdr(ws, row, "PRICE TARGET SUMMARY", N)
+    row += 1
+    _fin_col_hdr(ws, row, ["", "High Target", "Mean Target", "Low Target",
+                            "Current Price", "Upside to Mean", "Target Spread", ""])
+    row += 1
+
+    pt_vals = ["Price", _dp(high_tgt), _dp(mean_tgt), _dp(low_tgt),
+               _dp(current), _pp(upside, sign=True), _pp(spread), ""]
+    pt_bgs  = [_LBL_BG, _GRN_BG, _NAVY, _RED_BG, _WHITE, _WHITE, _WHITE, _WHITE]
+    pt_fgs  = ["000000", _GRN_FG, _WHITE, _RED_FG, "000000", "000000", "000000", "000000"]
+    for ci, (val, bg, fg) in enumerate(zip(pt_vals, pt_bgs, pt_fgs)):
+        c           = ws.cell(row=row, column=ci + 1)
+        c.value     = val
+        c.font      = _f(9, bold=(ci in (1, 2, 3)), color=fg)
+        c.fill      = _fill(bg)
+        c.border    = _BORDER
+        c.alignment = Alignment(horizontal="left" if ci == 0 else "right", vertical="center")
+    ws.row_dimensions[row].height = 20
+    row += 1
+
+    row += 1  # spacer
+
+    # ── Section 4: Consensus Estimates ───────────────────────────────────────
+    if estimates:
+        _fin_subhdr(ws, row, "CONSENSUS ESTIMATES  (quarterly)", N)
+        row += 1
+        _fin_col_hdr(ws, row, ["Period", "EPS Est", "EPS High", "EPS Low",
+                                "Rev Estimate", "Rev High", "Rev Low", "# Analysts"])
+        row += 1
+        for idx, e in enumerate(estimates[:4]):
+            alt = idx % 2 == 1
+            bg  = _ROW_ALT if alt else _WHITE
+
+            def _r(v):
+                if v is None: return "N/A"
+                try:
+                    vf = float(v)
+                except (TypeError, ValueError):
+                    return "N/A"
+                if abs(vf) >= 1e9: return f"${vf/1e9:.1f}B"
+                if abs(vf) >= 1e6: return f"${vf/1e6:.0f}M"
+                return f"${vf:.0f}"
+
+            def _ep(v):
+                return "N/A" if v is None else f"${v:.2f}"
+
+            row_vals = [
+                e.get("date", "—"),
+                _ep(e.get("eps_est")), _ep(e.get("eps_high")), _ep(e.get("eps_low")),
+                _r(e.get("rev_est")), _r(e.get("rev_high")), _r(e.get("rev_low")),
+                str(e.get("n_analysts") or "—"),
+            ]
+            for ci, val in enumerate(row_vals):
+                c           = ws.cell(row=row, column=ci + 1)
+                c.value     = val
+                c.font      = _f(9, bold=(ci == 0))
+                c.fill      = _fill(_LBL_BG if ci == 0 else bg)
+                c.border    = _BORDER
+                c.alignment = Alignment(horizontal="left" if ci == 0 else "right",
+                                        vertical="center")
+            ws.row_dimensions[row].height = 18
+            row += 1
+        row += 1  # spacer
+
+    # ── Section 5: Recent Analyst Targets ─────────────────────────────────────
+    if recent:
+        _fin_subhdr(ws, row, "RECENT ANALYST PRICE TARGETS", N)
+        row += 1
+        _fin_col_hdr(ws, row, ["Firm", "Analyst", "Price Target", "Date",
+                                "", "", "", ""])
+        row += 1
+        for idx, t in enumerate(recent):
+            alt = idx % 2 == 1
+            bg  = _ROW_ALT if alt else _WHITE
+            row_vals = [
+                t.get("firm", "—"), t.get("analyst", "—"),
+                _dp(t.get("price_target")), t.get("date", "—"),
+                "", "", "", "",
+            ]
+            for ci, val in enumerate(row_vals):
+                c           = ws.cell(row=row, column=ci + 1)
+                c.value     = val
+                c.font      = _f(9, bold=(ci == 0))
+                c.fill      = _fill(bg)
+                c.border    = _BORDER if ci < 4 else None
+                c.alignment = Alignment(horizontal="left" if ci == 0 else "right",
+                                        vertical="center")
+            ws.row_dimensions[row].height = 18
+            row += 1
+        row += 1  # spacer
+
+    # ── Section 6: Price Target Range Chart ───────────────────────────────────
+    _fin_subhdr(ws, row, "PRICE TARGET RANGE  —  Analyst Consensus vs Current Price", N)
+    row += 1
+
+    chart_hdr_row = row
+    chart_labels  = ["High Target", "Mean Target", "Low Target", "Current Price"]
+    chart_values  = [high_tgt, mean_tgt, low_tgt, current]
+
+    ws.cell(row=row, column=1).value = "Category"
+    ws.cell(row=row, column=2).value = "Price ($)"
+    for ci in range(1, 3):
+        c           = ws.cell(row=row, column=ci)
+        c.font      = _f(9, bold=True, color=_WHITE)
+        c.fill      = _fill(_STEEL)
+        c.border    = _BORDER
+        c.alignment = Alignment(horizontal="left" if ci == 1 else "right", vertical="center")
+    ws.row_dimensions[row].height = 18
+    row += 1
+
+    chart_data_start = row
+    for i, (label, val) in enumerate(zip(chart_labels, chart_values)):
+        alt = i % 2 == 1
+        bg  = _ROW_ALT if alt else _WHITE
+        lc  = ws.cell(row=row, column=1)
+        vc  = ws.cell(row=row, column=2)
+        lc.value = label; lc.font = _f(9); lc.fill = _fill(_LBL_BG)
+        lc.border = _BORDER; lc.alignment = Alignment(horizontal="left", vertical="center")
+        vc.value = val;   vc.font = _f(9); vc.fill = _fill(bg)
+        vc.border = _BORDER; vc.alignment = Alignment(horizontal="right", vertical="center")
+        if val is not None:
+            vc.number_format = "$#,##0.00"
+        ws.row_dimensions[row].height = 18
+        row += 1
+
+    chart_data_end = row - 1
+
+    bar_chart           = BarChart()
+    bar_chart.type      = "col"
+    bar_chart.grouping  = "clustered"
+    bar_chart.title     = "Analyst Price Target Range"
+    bar_chart.style     = 10
+    bar_chart.y_axis.title  = "Price ($)"
+    bar_chart.y_axis.numFmt = "$#,##0.00"
+    bar_chart.x_axis.title  = ""
+    bar_chart.width     = 22
+    bar_chart.height    = 14
+
+    data_ref = Reference(ws, min_col=2, max_col=2,
+                         min_row=chart_hdr_row, max_row=chart_data_end)
+    cats_ref = Reference(ws, min_col=1,
+                         min_row=chart_data_start, max_row=chart_data_end)
+    bar_chart.add_data(data_ref, titles_from_data=True)
+    bar_chart.set_categories(cats_ref)
+
+    ws.add_chart(bar_chart, f"C{chart_hdr_row}")
+
+    # ── Column widths ─────────────────────────────────────────────────────────
+    for col, w in zip("ABCDEFGH", [22, 14, 14, 14, 16, 14, 14, 14]):
+        ws.column_dimensions[col].width = w
+
+
 def build_excel(ticker: str, stats: dict, fin_data: dict,
                 price_history, sp500_history, markdown: str,
                 news_sentiment: dict | None,
                 dcf_result: dict | None,
                 research: dict | None,
                 comp_result: dict | None,
+                analyst_cov_result: dict | None,
                 output_path: str) -> None:
     wb = openpyxl.Workbook()
     if "Sheet" in wb.sheetnames:
@@ -2035,5 +2439,6 @@ def build_excel(ticker: str, stats: dict, fin_data: dict,
     _build_comps_sheet(wb, research)
     _build_earnings_sheet(wb, research)
     _build_competitive_sheet(wb, comp_result)
+    _build_analyst_coverage_sheet(wb, analyst_cov_result, ticker)
     wb.save(output_path)
     _polish_charts(output_path, ticker)

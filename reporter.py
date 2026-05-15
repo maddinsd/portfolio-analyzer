@@ -82,7 +82,8 @@ def _fmt_pct_plain(val) -> str:
 
 def _build_payload(stats: dict, fin_data: dict, news: list | None = None,
                    dcf_result: dict | None = None,
-                   competitive: dict | None = None) -> str:
+                   competitive: dict | None = None,
+                   analyst_coverage: dict | None = None) -> str:
     info = stats["info"]
 
     payload: dict = {
@@ -181,6 +182,21 @@ def _build_payload(stats: dict, fin_data: dict, news: list | None = None,
             "ranks": {k: ranks[k] for k in ("rev_growth", "gross_margin", "op_margin", "roe", "fpe")
                       if k in ranks},
             "src": competitive.get("source"),
+        }
+
+    if analyst_coverage and not analyst_coverage.get("error"):
+        cov = analyst_coverage
+        payload["cov"] = {
+            "rating": cov.get("consensus_rating"),
+            "bull":   cov.get("bull_ratio"),
+            "n":      cov.get("total_analysts"),
+            "tgt": {
+                "mean": _fmt(cov.get("mean_target")),
+                "hi":   _fmt(cov.get("high_target")),
+                "lo":   _fmt(cov.get("low_target")),
+            },
+            "up":     _fmt_pct(cov.get("upside_pct")),
+            "spread": _fmt_pct(cov.get("target_spread_pct")),
         }
 
     payload_json = json.dumps(payload, separators=(",", ":"))
@@ -461,13 +477,107 @@ def _competitive_md_section(comp_result: dict, comp_assessment: dict | None) -> 
     return "\n".join(lines)
 
 
+# ── Analyst coverage markdown ─────────────────────────────────────────────────
+
+def _analyst_coverage_md_section(cov_result: dict, cov_assessment: dict | None) -> str:
+    if cov_result.get("error"):
+        return "---\n\n## Analyst Coverage\n\n*Analyst coverage data unavailable.*\n"
+
+    ca            = cov_assessment or {}
+    signal        = ca.get("signal", "—")
+    summary_text  = ca.get("summary", "")
+    rev_bias      = ca.get("revision_bias", "—")
+
+    rating   = cov_result.get("consensus_rating") or "N/A"
+    bull     = cov_result.get("bull_ratio")
+    buy      = cov_result.get("buy_count", 0)
+    hold     = cov_result.get("hold_count", 0)
+    sell     = cov_result.get("sell_count", 0)
+    total    = cov_result.get("total_analysts", 0)
+    mean_tgt = cov_result.get("mean_target")
+    high_tgt = cov_result.get("high_target")
+    low_tgt  = cov_result.get("low_target")
+    current  = cov_result.get("current_price")
+    upside   = cov_result.get("upside_pct")
+    spread   = cov_result.get("target_spread_pct")
+
+    def _p(v):
+        return "N/A" if v is None else f"{v:.2f}"
+
+    def _pct(v, sign=False):
+        if v is None:
+            return "N/A"
+        return f"{v:+.1f}%" if sign else f"{v:.1f}%"
+
+    lines = [
+        "---", "",
+        "## Analyst Coverage", "",
+        (f"**Consensus: {rating}**  |  **Signal: {signal}**  "
+         f"|  **Estimate Revision Bias: {rev_bias}**"),
+        "",
+    ]
+    if summary_text:
+        lines += [f"> {summary_text}", ""]
+
+    lines += [
+        "### Rating Distribution", "",
+        "| Buy | Hold | Sell | Total | Bull Ratio |",
+        "|---|---|---|---|---|",
+        f"| {buy} | {hold} | {sell} | {total} | {_pct(bull)} |",
+        "",
+        "### Price Target Summary", "",
+        "| | Mean | High | Low | Current | Upside | Spread |",
+        "|---|---|---|---|---|---|---|",
+        (f"| Price | ${_p(mean_tgt)} | ${_p(high_tgt)} | ${_p(low_tgt)}"
+         f" | ${_p(current)} | {_pct(upside, sign=True)} | {_pct(spread)} |"),
+        "",
+    ]
+
+    estimates = cov_result.get("estimates", [])
+    if estimates:
+        lines += [
+            "### Consensus Estimates", "",
+            "| Period | EPS Est | EPS High | EPS Low | Rev Estimate | # Analysts |",
+            "|---|---|---|---|---|---|",
+        ]
+        for e in estimates[:4]:
+            def _r(v):
+                if v is None: return "N/A"
+                if abs(v) >= 1e9: return f"${v/1e9:.1f}B"
+                if abs(v) >= 1e6: return f"${v/1e6:.0f}M"
+                return f"${v:.0f}"
+            lines.append(
+                f"| {e.get('date','—')} | ${_p(e.get('eps_est'))}"
+                f" | ${_p(e.get('eps_high'))} | ${_p(e.get('eps_low'))}"
+                f" | {_r(e.get('rev_est'))} | {e.get('n_analysts') or '—'} |"
+            )
+        lines.append("")
+
+    recent = cov_result.get("recent_targets", [])
+    if recent:
+        lines += [
+            "### Recent Analyst Targets", "",
+            "| Firm | Analyst | Price Target | Date |",
+            "|---|---|---|---|",
+        ]
+        for t in recent:
+            lines.append(
+                f"| {t.get('firm','—')} | {t.get('analyst','—')}"
+                f" | ${_p(t.get('price_target'))} | {t.get('date','—')} |"
+            )
+        lines.append("")
+
+    return "\n".join(lines)
+
+
 # ── Main entry point ──────────────────────────────────────────────────────────
 
 def build_report(ticker: str, stats: dict, fin_data: dict,
                  news: list | None = None, dcf_result: dict | None = None,
                  research: dict | None = None, competitive: dict | None = None,
-                 dry_run: bool = False) -> tuple[str, dict | None, dict | None]:
-    payload_json = _build_payload(stats, fin_data, news, dcf_result, competitive)
+                 analyst_coverage: dict | None = None,
+                 dry_run: bool = False) -> tuple[str, dict | None, dict | None, dict | None]:
+    payload_json = _build_payload(stats, fin_data, news, dcf_result, competitive, analyst_coverage)
 
     if dry_run:
         print("=== DRY RUN: Claude payload ===")
@@ -478,7 +588,7 @@ def build_report(ticker: str, stats: dict, fin_data: dict,
             "*Dry run — Claude call skipped.*\n\n"
             f"```json\n{payload_json}\n```\n"
         )
-        return md, None, None
+        return md, None, None, None
 
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
@@ -507,12 +617,24 @@ def build_report(ticker: str, stats: dict, fin_data: dict,
         "what the peer comparison implies for the investment case)."
     ) if has_comp else ""
 
+    has_cov  = analyst_coverage and not analyst_coverage.get("error")
+    cov_inst = (
+        "\n\nFor the cov JSON field: signal (Bullish/Neutral/Bearish based on bull ratio and "
+        "mean-target upside), summary (2-3 sentence institutional assessment of analyst conviction "
+        "quality, what target spread implies about certainty, and how consensus compares to DCF or "
+        "current price), revision_bias (Positive/Flat/Negative based on EPS estimate trend)."
+    ) if has_cov else ""
+
     if news:
         comp_json_field = (
             ',"comp":{"moat_type":"Switching Costs","moat_strength":"Wide — one sentence.",'
             '"position":"Leader","key_risk":"Specific named threat in 24 months.",'
             '"assessment":"3-4 sentence paragraph."}'
         ) if has_comp else ""
+        cov_json_field = (
+            ',"cov":{"signal":"Bullish","summary":"2-3 sentence coverage quality assessment.",'
+            '"revision_bias":"Positive"}'
+        ) if has_cov else ""
 
         json_schema = (
             '{"sent":[{"i":0,"s":"Positive","imp":"Major","type":"Earnings",'
@@ -520,7 +642,8 @@ def build_report(ticker: str, stats: dict, fin_data: dict,
             '"overall":"Bullish","score":8.1,"momentum":"Improving",'
             '"themes":["Theme A","Theme B","Theme C"],'
             '"catalyst":"One sentence: key near-term catalyst to watch.",'
-            f'"summary":"2-3 sentence IB-grade synthesis of the news flow and its implications."{comp_json_field}}}'
+            f'"summary":"2-3 sentence IB-grade synthesis of the news flow and its implications."'
+            f'{comp_json_field}{cov_json_field}}}'
         )
         user_content = (
             f"First, output the JSON block below (before anything else).\n\n"
@@ -532,25 +655,35 @@ def build_report(ticker: str, stats: dict, fin_data: dict,
             f"`type`: Earnings/Product/Regulatory/Macro/Technical/M&A/Management/Analyst/Other. "
             f"`momentum`: Improving/Stable/Deteriorating. "
             f"Write `note` and `summary` as a senior equity analyst: specific, data-referenced, actionable."
-            f"{dcf_inst}{comp_inst}"
+            f"{dcf_inst}{comp_inst}{cov_inst}"
         )
     else:
-        comp_schema_prefix = ""
+        json_parts = {}
         if has_comp:
-            comp_schema_prefix = (
-                'First, output this JSON block before all analysis sections:\n\n'
-                '```json\n'
-                '{"comp":{"moat_type":"Switching Costs","moat_strength":"Wide — one sentence.",'
+            json_parts["comp"] = (
+                '{"moat_type":"Switching Costs","moat_strength":"Wide — one sentence.",'
                 '"position":"Leader","key_risk":"Specific named threat in 24 months.",'
-                '"assessment":"3-4 sentence paragraph."}}\n'
-                '```\n\n'
+                '"assessment":"3-4 sentence paragraph."}'
+            )
+        if has_cov:
+            json_parts["cov"] = (
+                '{"signal":"Bullish","summary":"2-3 sentence coverage quality assessment.",'
+                '"revision_bias":"Positive"}'
+            )
+
+        schema_prefix = ""
+        if json_parts:
+            schema_body = "{" + ",".join(f'"{k}":{v}' for k, v in json_parts.items()) + "}"
+            schema_prefix = (
+                "First, output this JSON block before all analysis sections:\n\n"
+                f"```json\n{schema_body}\n```\n\n"
             )
         user_content = (
-            f"{comp_schema_prefix}"
+            f"{schema_prefix}"
             f"Analyze this stock. Use exactly these section headers:\n"
             f"{ANALYSIS_STRUCTURE}\n\n"
             f"Data: {payload_json}"
-            f"{dcf_inst}{comp_inst}"
+            f"{dcf_inst}{comp_inst}{cov_inst}"
         )
 
     client = anthropic.Anthropic(api_key=api_key)
@@ -562,15 +695,17 @@ def build_report(ticker: str, stats: dict, fin_data: dict,
     )
     analysis = message.content[0].text.strip()
 
-    # Parse JSON block from Claude's response (contains sentiment and/or comp assessment)
+    # Parse JSON block from Claude's response (contains sentiment and/or comp/cov assessments)
     sent_data:       dict | None = None
     comp_assessment: dict | None = None
+    cov_assessment:  dict | None = None
 
     m = re.search(r'```json\s*(\{[\s\S]+?\})\s*```', analysis)
     if m:
         try:
             raw = json.loads(m.group(1))
             comp_assessment = raw.get("comp") or None
+            cov_assessment  = raw.get("cov")  or None
 
             if news and "sent" in raw:
                 idx_map = {item["i"]: item for item in raw.get("sent", [])}
@@ -623,6 +758,7 @@ def build_report(ticker: str, stats: dict, fin_data: dict,
     fin_tables    = _financial_statements_md(fin_data)
     research_md   = "\n" + _research_md_sections(research) if research else ""
     comp_md       = "\n" + _competitive_md_section(competitive, comp_assessment) if competitive else ""
+    cov_md        = "\n" + _analyst_coverage_md_section(analyst_coverage, cov_assessment) if analyst_coverage else ""
     markdown = (
         f"# {ticker} Stock Analysis — {date.today()}\n\n"
         f"{analysis}\n\n"
@@ -630,5 +766,6 @@ def build_report(ticker: str, stats: dict, fin_data: dict,
         f"{fin_tables}"
         f"{research_md}"
         f"{comp_md}"
+        f"{cov_md}"
     )
-    return markdown, sent_data, comp_assessment
+    return markdown, sent_data, comp_assessment, cov_assessment

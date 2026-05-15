@@ -39,6 +39,7 @@ def main() -> int:
     from dcf import run_dcf
     from research import run_research_pipeline
     from competitive import run_competitive
+    from analyst_coverage import run_analyst_coverage
 
     print(f"Fetching data for {ticker}...")
     data = fetch_stock_data(ticker)
@@ -76,13 +77,24 @@ def main() -> int:
         n_peers = len(comp_result.get("peers", []))
         print(f"  Found {n_peers} peers via {comp_result.get('source')}")
 
+    print("Fetching analyst coverage...")
+    analyst_cov_result = run_analyst_coverage(ticker, stats, fin_data)
+    if analyst_cov_result.get("error"):
+        print(f"  Analyst coverage: {analyst_cov_result['error']}")
+    else:
+        n_an = analyst_cov_result.get("total_analysts", 0)
+        cons = analyst_cov_result.get("consensus_rating", "—")
+        print(f"  {n_an} analysts · consensus: {cons}")
+
     print("Generating analysis...")
-    markdown, news_sentiment, comp_assessment = build_report(
+    markdown, news_sentiment, comp_assessment, cov_assessment = build_report(
         ticker, stats, fin_data, news, dcf_result, research, comp_result,
-        dry_run=args.dry_run
+        analyst_cov_result, dry_run=args.dry_run
     )
     if comp_assessment and not comp_result.get("error"):
         comp_result["claude"] = comp_assessment
+    if cov_assessment and not analyst_cov_result.get("error"):
+        analyst_cov_result["claude"] = cov_assessment
     md_path.write_text(markdown, encoding="utf-8")
     shutil.copy2(md_path, md_latest)
     print(f"Saved: {md_path}")
@@ -93,11 +105,14 @@ def main() -> int:
         n_sheets += 1
     if research:
         n_sheets += 3
-    if comp_result:   # sheet always created (shows error note if failed)
+    if comp_result:          # sheet always created (shows error note if failed)
+        n_sheets += 1
+    if analyst_cov_result:   # sheet always created (shows error note if failed)
         n_sheets += 1
     print(f"Building Excel report ({n_sheets} sheets)...")
     build_excel(ticker, stats, fin_data, data["price_history"], data["sp500_history"],
-                markdown, news_sentiment, dcf_result, research, comp_result, str(xl_path))
+                markdown, news_sentiment, dcf_result, research, comp_result,
+                analyst_cov_result, str(xl_path))
     shutil.copy2(xl_path, xl_latest)
     print(f"Saved: {xl_path}")
     print(f"  → {xl_latest.name}")
