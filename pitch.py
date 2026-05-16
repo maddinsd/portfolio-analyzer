@@ -549,6 +549,44 @@ def _slide_overview(prs, stats: dict, fin_data: dict):
              size=10, color=_DGREY)
         y += Inches(0.38)
 
+    # ── Financial highlights strip (fills bottom of slide) ────────────────────
+    a_inc = (fin_data.get("income_statement") or {}).get("annual") or {}
+    a_cf  = (fin_data.get("cash_flow") or {}).get("annual") or {}
+    rev_list = a_inc.get("revenue", [])
+    gm_list  = a_inc.get("gross_margin", [])
+    om_list  = a_inc.get("operating_margin", [])
+    fcf_list = a_cf.get("free_cash_flow", [])
+
+    def _fmt_rev(v_m):
+        if v_m is None: return "—"
+        f = _sf(v_m)
+        return f"${f/1000:.1f}B" if abs(f) >= 1000 else f"${f:.0f}M"
+
+    def _fmt_margin(v):
+        f = _sf(v, 1)
+        return f"{f:.1f}%" if f is not None else "—"
+
+    fin_highlights = [
+        ("LTM Revenue",    _fmt_rev(rev_list[0] if rev_list else None)),
+        ("Gross Margin",   _fmt_margin(gm_list[0] if gm_list else None)),
+        ("Op. Margin",     _fmt_margin(om_list[0] if om_list else None)),
+        ("Free Cash Flow", _fmt_rev(fcf_list[0] if fcf_list else None)),
+    ]
+
+    strip_y = Inches(5.1)
+    strip_h = Inches(1.8)
+    col_w   = Inches(12.5) / len(fin_highlights)
+    _rect(slide, _ML, strip_y, Inches(12.5), Inches(0.02), fill=_LGREY)
+    _txt(slide, "FINANCIAL HIGHLIGHTS",
+         _ML, strip_y + Inches(0.06), Inches(12.5), Inches(0.25),
+         size=8, bold=True, color=_MGREY)
+    for i, (lbl, val) in enumerate(fin_highlights):
+        cx = _ML + col_w * i
+        _txt(slide, val,   cx, strip_y + Inches(0.36), col_w, Inches(0.5),
+             size=20, bold=True, color=_NAVY, align=PP_ALIGN.CENTER)
+        _txt(slide, lbl,   cx, strip_y + Inches(0.9),  col_w, Inches(0.3),
+             size=9, color=_MGREY, align=PP_ALIGN.CENTER)
+
 
 def _slide_thesis(prs, research: dict | None,
                   stats: dict | None = None, fin_data: dict | None = None,
@@ -566,26 +604,27 @@ def _slide_thesis(prs, research: dict | None,
     else:
         points = bulls[:4]
 
+    BOX_H = Inches(2.15)
+    ROW2_Y = Inches(3.02)   # tighter gap between rows
     positions = [
         (_ML,            _CT),
         (Inches(6.85),   _CT),
-        (_ML,            Inches(3.4)),
-        (Inches(6.85),   Inches(3.4)),
+        (_ML,            ROW2_Y),
+        (Inches(6.85),   ROW2_Y),
     ]
     for i, (text, (cx, cy)) in enumerate(zip(points[:4], positions)):
-        _rect(slide, cx, cy, Inches(5.9), Inches(1.7), fill=_LGREY, border=_LGREY)
-        _rect(slide, cx, cy, Inches(0.06), Inches(1.7), fill=_NAVY)
-        # Truncate for display
-        display = text if len(text) <= 160 else text[:157] + "…"
+        _rect(slide, cx, cy, Inches(5.9), BOX_H, fill=_LGREY, border=_LGREY)
+        _rect(slide, cx, cy, Inches(0.06), BOX_H, fill=_NAVY)
+        display = text if len(text) <= 240 else text[:237] + "…"
         _txt(slide, display,
              cx + Inches(0.15), cy + Inches(0.1),
-             Inches(5.65), Inches(1.55),
-             size=11, color=_DGREY, wrap=True)
+             Inches(5.65), BOX_H - Inches(0.12),
+             size=9, color=_DGREY, wrap=True)
 
     if verdict:
-        _rect(slide, 0, Inches(5.25), _W, Inches(0.6), fill=_NAVY)
+        _rect(slide, 0, Inches(5.38), _W, Inches(0.6), fill=_NAVY)
         _txt(slide, f'Analyst View: "{verdict}"',
-             _ML, Inches(5.3), Inches(12.9), Inches(0.5),
+             _ML, Inches(5.43), Inches(12.9), Inches(0.5),
              size=11, italic=True, color=_WHITE, valign=MSO_ANCHOR.MIDDLE)
 
 
@@ -793,7 +832,7 @@ def _slide_comps(prs, stats: dict, research: dict | None, comp_result: dict | No
     if n_rows < 2:
         n_rows = 3
 
-    tbl_shp = slide.shapes.add_table(n_rows, n_cols, _ML, _CT, Inches(12.5), Inches(2.8))
+    tbl_shp = slide.shapes.add_table(n_rows, n_cols, _ML, _CT, Inches(12.5), Inches(3.2))
     tbl     = tbl_shp.table
     col_ws  = [Inches(3.5), Inches(1.2), Inches(2.5), Inches(2.5), Inches(2.3)]
     for c, w in enumerate(col_ws):
@@ -824,13 +863,13 @@ def _slide_comps(prs, stats: dict, research: dict | None, comp_result: dict | No
         _cell(tbl, r, 4, _val(comp.get("ev_rev")), color=_DGREY, fill=row_fill, size=11, align=PP_ALIGN.CENTER)
 
     # Summary
-    y_sum = _CT + Inches(2.95)
+    y_sum = _CT + Inches(3.35)
     if summary:
-        _txt(slide, summary, _ML, y_sum, Inches(12.5), Inches(0.55),
+        _txt(slide, summary, _ML, y_sum, Inches(12.5), Inches(0.7),
              size=11, color=_DGREY, wrap=True)
-        y_sum += Inches(0.6)
+        y_sum += Inches(0.75)
     if premium:
-        _rect(slide, _ML, y_sum, Inches(12.5), Inches(0.4), fill=_LGREY)
+        _rect(slide, _ML, y_sum, Inches(12.5), Inches(0.42), fill=_LGREY)
         _txt(slide, f"Relative Valuation: {premium}",
              _ML + Inches(0.1), y_sum + Inches(0.05), Inches(12.3), Inches(0.35),
              size=11, italic=True, color=_NAVY, valign=MSO_ANCHOR.MIDDLE)
@@ -885,13 +924,13 @@ def _slide_football(prs, stats: dict, dcf_result: dict | None,
             bar_actual_w = x_hi - x_lo
             if bar_actual_w > 0:
                 _rect(slide, x_lo, bar_mid_y, bar_actual_w, bar_h, fill=color)
-                # Value labels
+                # Value labels — offset enough to avoid overlap with bar labels
                 _txt(slide, _fmt_price(low),
-                     x_lo - Inches(0.8), bar_mid_y, Inches(0.75), bar_h,
-                     size=9, color=_DGREY, align=PP_ALIGN.RIGHT, valign=MSO_ANCHOR.MIDDLE)
+                     x_lo - Inches(0.85), bar_mid_y, Inches(0.8), bar_h,
+                     size=8, color=_DGREY, align=PP_ALIGN.RIGHT, valign=MSO_ANCHOR.MIDDLE)
                 _txt(slide, _fmt_price(high),
-                     x_hi + Inches(0.03), bar_mid_y, Inches(0.75), bar_h,
-                     size=9, color=_DGREY, align=PP_ALIGN.LEFT, valign=MSO_ANCHOR.MIDDLE)
+                     x_hi + Inches(0.04), bar_mid_y, Inches(0.8), bar_h,
+                     size=8, color=_DGREY, align=PP_ALIGN.LEFT, valign=MSO_ANCHOR.MIDDLE)
         else:
             _txt(slide, "N/A", chart_x + Inches(0.1), bar_mid_y, Inches(2.0), bar_h,
                  size=10, color=_MGREY, italic=True, valign=MSO_ANCHOR.MIDDLE)

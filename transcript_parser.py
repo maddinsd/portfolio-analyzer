@@ -190,7 +190,7 @@ def _run(ticker: str, stats: dict, fin_data: dict) -> dict:
 
     # ── 2. Revenue actuals from FMP income-statement (quarterly, limit≤5) ─────
     fmp_records = _fmp_get("income-statement",
-                           {"symbol": ticker, "period": "quarter", "limit": 5})
+                           {"symbol": ticker, "period": "quarter", "limit": 8})
 
     rev_by_date: dict[str, tuple] = {}
     if fmp_records and isinstance(fmp_records, list):
@@ -208,7 +208,41 @@ def _run(ticker: str, stats: dict, fin_data: dict) -> dict:
                     rev_yoy = (float(rev_raw) - float(prev)) / abs(float(prev)) * 100
             rev_by_date[rec_date] = (rev_m, rev_yoy)
 
-    # Match FMP revenue to beat/miss rows by nearest date (±45 days)
+    # yfinance fallback when FMP returns no quarterly revenue records
+    if not rev_by_date:
+        try:
+            qf = getattr(tk, "quarterly_income_stmt", None)
+            if qf is None or (hasattr(qf, "empty") and qf.empty):
+                qf = getattr(tk, "quarterly_financials", None)
+            if qf is not None and not (hasattr(qf, "empty") and qf.empty):
+                rev_row = None
+                for label in ("Total Revenue", "Revenue", "TotalRevenue"):
+                    if label in qf.index:
+                        rev_row = qf.loc[label]
+                        break
+                if rev_row is not None:
+                    cols = sorted(rev_row.index, reverse=True)
+                    for i, col in enumerate(cols):
+                        try:
+                            val = float(rev_row[col])
+                        except (TypeError, ValueError):
+                            continue
+                        rev_m = val / 1e6
+                        rev_yoy = None
+                        if i + 4 < len(cols):
+                            try:
+                                prev_val = float(rev_row[cols[i + 4]])
+                                if prev_val != 0:
+                                    rev_yoy = (val - prev_val) / abs(prev_val) * 100
+                            except (TypeError, ValueError):
+                                pass
+                        rec_date = (col.strftime("%Y-%m-%d")
+                                    if hasattr(col, "strftime") else str(col)[:10])
+                        rev_by_date[rec_date] = (rev_m, rev_yoy)
+        except Exception:
+            pass
+
+    # Match revenue to beat/miss rows by nearest date (±60 days)
     for bm in beat_miss:
         bm_dt = datetime.strptime(bm["date"], "%Y-%m-%d").date()
         best_key, best_delta = None, 999
@@ -219,7 +253,7 @@ def _run(ticker: str, stats: dict, fin_data: dict) -> dict:
                     best_delta, best_key = delta, rec_date
             except ValueError:
                 continue
-        if best_key and best_delta <= 45:
+        if best_key and best_delta <= 60:
             bm["rev_actual"], bm["rev_growth"] = rev_by_date[best_key]
 
     # ── 3. Streaks and tone ────────────────────────────────────────────────────

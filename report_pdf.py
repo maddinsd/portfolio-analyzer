@@ -226,8 +226,7 @@ def _build_styles() -> dict:
         "body_sm": _ps("body_sm", fontName=_SERIF, fontSize=8.5, textColor=_DGREY,
                        spaceAfter=3, leading=11),
         "bullet": _ps("bullet", fontName=_SERIF, fontSize=9, textColor=_DGREY,
-                      leftIndent=12, spaceAfter=4, leading=12,
-                      bulletText="▸"),
+                      leftIndent=12, spaceAfter=4, leading=12),
         "caption": _ps("caption", fontName=_SANS, fontSize=7.5, textColor=_MGREY,
                        spaceAfter=4, leading=10),
         "rating_buy": _ps("rating_buy", fontName=_SANS_B, fontSize=20,
@@ -330,7 +329,7 @@ def _chart_revenue_fcf(fin_data: dict, width: float = 5.5, height: float = 2.4) 
         ax.grid(axis='y', color=c['lgrey'], linewidth=0.5, zorder=0)
         ax.spines[['top', 'right']].set_visible(False)
         ax.spines[['left', 'bottom']].set_color(c['mgrey'])
-        ax.legend(fontsize=7, framealpha=0, loc='upper left')
+        ax.legend(fontsize=7, framealpha=0.9, loc='lower right')
         ax.set_title('Revenue & Free Cash Flow ($B)', fontsize=8, color=c['navy'],
                      fontweight='bold', pad=4)
 
@@ -573,14 +572,52 @@ def _draw_cover_page(canvas, doc, *, ticker, company, rating, target, px,
     canvas.setFillColor(_MGREY)
     canvas.drawCentredString(W/2, H - 4.7*inch, f"Analyst: {_ANALYST}")
 
-    # Thin rule before footer
+    # ── Mid-cover accent block ────────────────────────────────────────────────
+    # Light gray background spanning full width
+    canvas.setFillColor(_LGREY)
+    canvas.rect(0, H - 8.4*inch, W, 2.9*inch, fill=1, stroke=0)
+
+    # UC Red left accent bar
+    canvas.setFillColor(_UC_RED)
+    canvas.rect(0, H - 8.4*inch, 0.18*inch, 2.9*inch, fill=1, stroke=0)
+
+    canvas.setFont(_SANS_B, 9)
+    canvas.setFillColor(_NAVY)
+    canvas.drawString(0.75*inch, H - 5.25*inch, "WHAT'S INSIDE")
+
     canvas.setStrokeColor(_NAVY)
     canvas.setLineWidth(0.5)
-    canvas.line(0.75*inch, 0.75*inch, W - 0.75*inch, 0.75*inch)
+    canvas.line(0.75*inch, H - 5.35*inch, W - 0.75*inch, H - 5.35*inch)
 
-    canvas.setFont(_SANS, 7.5)
-    canvas.setFillColor(_MGREY)
-    canvas.drawCentredString(W/2, 0.45*inch, _CONF)
+    sections = [
+        ("Executive Summary",  "Investment thesis, key metrics, and price target rationale"),
+        ("Analyst's Note",     "Narrative context — why we are initiating coverage now"),
+        ("Financial Analysis", "Revenue, margin, balance sheet, and cash flow review"),
+        ("Valuation",          "DCF model, comparable companies, and football field"),
+        ("Research Analysis",  "Competitive moat, analyst consensus, and earnings preview"),
+        ("Risk Analysis",      "Bull / base / bear scenario matrix and key risk factors"),
+        ("Appendix",           "Full income statement, balance sheet, and cash flow tables"),
+    ]
+    y = H - 5.6*inch
+    for section, desc in sections:
+        canvas.setFont(_SANS_B, 8)
+        canvas.setFillColor(_NAVY)
+        canvas.drawString(0.75*inch, y, f"▸  {section}")
+        canvas.setFont(_SANS, 8)
+        canvas.setFillColor(_DGREY)
+        canvas.drawString(2.6*inch, y, desc)
+        y -= 0.28*inch
+
+    # Bottom navy band
+    canvas.setFillColor(_NAVY)
+    canvas.rect(0, 0, W, 0.9*inch, fill=1, stroke=0)
+
+    canvas.setFont(_SANS_B, 8)
+    canvas.setFillColor(_WHITE)
+    canvas.drawCentredString(W/2, 0.54*inch, _UC_HDR)
+    canvas.setFont(_SANS, 7)
+    canvas.setFillColor(colors.HexColor("#AABBCC"))
+    canvas.drawCentredString(W/2, 0.34*inch, _CONF)
 
     canvas.restoreState()
 
@@ -660,7 +697,133 @@ def _metrics_table_2col(pairs: list[tuple[str, str]]) -> Table:
     return Table(rows, colWidths=cw, style=ts, hAlign='LEFT')
 
 
-# ── Page 2: Executive Summary ─────────────────────────────────────────────────
+# ── Page 2: Analyst's Note (Sequoia-style narrative) ─────────────────────────
+
+def _section_analyst_note(styles: dict, stats: dict, fin_data: dict,
+                          dcf_result, research, cov_result) -> list:
+    """Single-page narrative opener: why we're initiating, in the analyst's voice."""
+    info    = stats.get("info", {})
+    company = info.get("shortName") or info.get("longName") or "the company"
+    ticker  = (info.get("symbol") or "").upper()
+    px      = _sf(stats.get("current_price"))
+    mktcap  = _sf(info.get("marketCap"))
+    rev     = _sf(fin_data.get("revenue"))
+    ebitda  = _sf(fin_data.get("ebitda"))
+
+    # Derive display values
+    px_str     = f"${px:,.2f}" if px else "—"
+    mktcap_b   = f"${mktcap/1e9:.1f}B" if mktcap else "—"
+    rev_b      = f"${rev/1000:.1f}B" if rev else "—"
+    ebitda_b   = f"${ebitda/1000:.1f}B" if ebitda and ebitda > 0 else "—"
+
+    # Margin
+    gm_list = ((fin_data.get("income_statement") or {}).get("annual") or {}).get("gross_margin", [])
+    gm      = _sf(gm_list[0]) if gm_list else None
+    gm_str  = f"{gm:.1f}%" if gm else "—"
+
+    # DCF
+    dcf_iv  = None
+    dcf_up  = None
+    if dcf_result and not dcf_result.get("error"):
+        dcf_iv  = _sf(dcf_result.get("valuation", {}).get("intrinsic"))
+        if dcf_iv and px:
+            dcf_up = (dcf_iv - px) / px * 100
+
+    iv_str  = f"${dcf_iv:,.2f}" if dcf_iv else "—"
+    up_str  = (f"{'+' if dcf_up >= 0 else ''}{dcf_up:.0f}%") if dcf_up is not None else "—"
+
+    # Rating / target
+    rating = _fallback_rating(research, cov_result)
+    target = _fallback_target(research, cov_result)
+
+    # Research thesis snippet
+    thesis_snippet = ""
+    if research and not research.get("error"):
+        thesis = research.get("investment_thesis") or {}
+        if isinstance(thesis, dict):
+            raw = thesis.get("content") or thesis.get("thesis") or ""
+        else:
+            raw = str(thesis)
+        thesis_snippet = raw[:400].strip()
+
+    # Revenue growth
+    rev_list = ((fin_data.get("income_statement") or {}).get("annual") or {}).get("revenue", [])
+    rev_yoy  = None
+    if len(rev_list) >= 2 and rev_list[0] and rev_list[1]:
+        rev_yoy = (rev_list[0] - rev_list[1]) / abs(rev_list[1]) * 100
+    rev_yoy_str = (f"{'+' if rev_yoy >= 0 else ''}{rev_yoy:.0f}% YoY") if rev_yoy is not None else ""
+
+    note_style = ParagraphStyle(
+        "analyst_note_body",
+        fontName=_SERIF, fontSize=10.5, textColor=_DGREY,
+        leading=16, spaceAfter=14, firstLineIndent=0,
+    )
+    note_italic = ParagraphStyle(
+        "analyst_note_italic",
+        fontName="Times-Italic", fontSize=10.5, textColor=_DGREY,
+        leading=16, spaceAfter=14,
+    )
+    sig_style = ParagraphStyle(
+        "analyst_sig",
+        fontName=_SERIF_B, fontSize=9.5, textColor=_NAVY,
+        leading=13, spaceAfter=4, alignment=2,
+    )
+
+    p1 = (
+        f"We are initiating coverage of {company} ({ticker}) with a {rating} rating "
+        f"and a 12-month price target of {target}. At the current price of {px_str}, "
+        f"the stock trades at a discount to our intrinsic value estimate of {iv_str} "
+        f"({up_str} upside), and we believe the market underappreciates the durability "
+        f"of {company}'s earnings power and the compounding nature of its competitive moat."
+    )
+
+    if thesis_snippet:
+        p2 = thesis_snippet
+        if not p2.endswith("."):
+            p2 += "."
+    else:
+        p2 = (
+            f"{company} has built a formidable position in its markets. "
+            f"With {rev_b} in revenue{(' growing ' + rev_yoy_str) if rev_yoy_str else ''} "
+            f"and gross margins of {gm_str}, the business generates the kind of returns "
+            f"on capital that compound value over time. "
+            f"We see limited near-term threats to the core franchise."
+        )
+
+    p3 = (
+        f"Our {up_str} upside estimate rests on three convictions: the business has "
+        f"pricing power that the income statement does not yet fully reflect; "
+        f"management has demonstrated capital allocation discipline across cycles; "
+        f"and the addressable market continues to expand faster than consensus expects. "
+        f"A DCF at our base assumptions yields {iv_str}, and we believe peak-cycle "
+        f"concerns are already more than priced in."
+    )
+
+    p4 = (
+        f"Risks to our view are real — execution on integration, macro sensitivity, "
+        f"and competitive response from well-capitalized peers. We size these risks "
+        f"in our bear case ({target} bear) and believe the risk/reward favors initiation "
+        f"at current levels for investors with an 18-month horizon."
+    )
+
+    sig = f"We initiate coverage with a {rating} rating and {target} price target.\n— {_ANALYST}, University of Cincinnati"
+
+    flowables: list = []
+    flowables += _section_header("Analyst's Note", styles)
+    flowables.append(Spacer(1, 0.15*inch))
+    flowables.append(Paragraph(p1, note_style))
+    flowables.append(Paragraph(p2, note_italic))
+    flowables.append(Paragraph(p3, note_style))
+    flowables.append(Paragraph(p4, note_style))
+    flowables.append(Spacer(1, 0.25*inch))
+    flowables.append(_hr())
+    flowables.append(Spacer(1, 0.08*inch))
+    flowables.append(Paragraph(sig, sig_style))
+    flowables.append(PageBreak())
+    return flowables
+
+
+# ── Page 3: Executive Summary ─────────────────────────────────────────────────
 
 def _section_exec_summary(styles: dict, stats: dict, fin_data: dict,
                           research, comp_result, cov_result, dcf_result) -> list:
@@ -747,7 +910,7 @@ def _section_exec_summary(styles: dict, stats: dict, fin_data: dict,
 
     story.append(Paragraph("Top Risks", styles["h2"]))
     for bear in bears[:2]:
-        story.append(Paragraph(f"▸  {bear}", styles["bullet"]))
+        story.append(Paragraph(f"▸  {bear}", styles["body"]))
 
     return story
 
@@ -951,16 +1114,20 @@ def _section_valuation(styles: dict, stats: dict, fin_data: dict,
     story.append(Spacer(1, 0.12*inch))
 
     # ── Football field chart ──────────────────────────────────────────────────
-    story.append(Paragraph("Valuation Football Field", styles["h2"]))
     ff_chart = _chart_football(stats, dcf_result, comp_result, cov_result,
                                width=6.0, height=2.6)
+    ff_block = [Paragraph("Valuation Football Field", styles["h2"])]
     if ff_chart:
-        story.append(ff_chart)
-        story.append(Paragraph(
-            "Red line = current price. Bars show valuation range implied by each methodology.",
-            styles["caption"]))
+        ff_block += [
+            ff_chart,
+            Paragraph(
+                "Red line = current price. Bars show valuation range implied by each methodology.",
+                styles["caption"]),
+        ]
     else:
-        story.append(Paragraph("Insufficient valuation data to render football field.", styles["body_sm"]))
+        ff_block.append(Paragraph(
+            "Insufficient valuation data to render football field.", styles["body_sm"]))
+    story.append(KeepTogether(ff_block))
 
     return story
 
@@ -1088,22 +1255,21 @@ def _section_research(styles: dict, stats: dict, fin_data: dict,
     story.append(Paragraph("Investment Thesis — Bull Case", styles["h2"]))
     bulls = _fallback_bulls(research, stats, fin_data, comp_result)
     for b in bulls:
-        story.append(Paragraph(f"▸  {b}", styles["bullet"]))
+        story.append(Paragraph(f"▸  {b}", styles["body"]))
 
     story.append(Spacer(1, 0.08*inch))
     story.append(Paragraph("Investment Thesis — Bear Case", styles["h2"]))
     bears_full = _fallback_bears(research, stats, fin_data, None, comp_result)
     for b in bears_full:
-        story.append(Paragraph(f"▸  {b}", styles["bullet"]))
+        story.append(Paragraph(f"▸  {b}", styles["body"]))
 
-    # Research earnings preview if available
+    # Research earnings preview if available and non-empty
     earnings = (research or {}).get("earnings") or {}
-    if earnings and not earnings.get("_placeholder"):
+    summary  = (earnings.get("summary") or "").strip()
+    if earnings and not earnings.get("_placeholder") and len(summary) > 30:
         story.append(Spacer(1, 0.1*inch))
         story.append(Paragraph("Earnings Preview", styles["h2"]))
-        summary = earnings.get("summary", "")
-        if summary:
-            story.append(Paragraph(summary[:800], styles["body"]))
+        story.append(Paragraph(summary[:800], styles["body"]))
         ests = cov_result.get("estimates", []) if ok_cov else []
         if ests:
             story.append(Spacer(1, 0.06*inch))
@@ -1163,13 +1329,19 @@ def _section_risks(styles: dict, stats: dict, fin_data: dict,
             "Services mix shift diversifies revenue away from hardware cycles; sticky ecosystem provides defensive characteristics vs. pure-play hardware peers."
         ))
 
-    risk_hdr  = ["Risk", "Probability", "Magnitude", "Mitigant"]
+    risk_hdr  = ["Risk", "Prob.", "Mag.", "Mitigant"]
     risk_rows = [risk_hdr]
     for risk, prob, mag, mitigant in risk_entries[:4]:
-        risk_rows.append([risk[:200], prob, mag, mitigant[:200]])
+        risk_rows.append([risk[:300], prob, mag, mitigant[:300]])
 
-    cw_r = [2.4*inch, 0.85*inch, 0.85*inch, 2.4*inch]
-    story.append(_tbl(risk_rows, cw_r))
+    # Risk 45%, Prob 12%, Mag 12%, Mitigant 31% of 6.5"
+    cw_r = [2.925*inch, 0.78*inch, 0.78*inch, 2.015*inch]
+    risk_extra = [
+        ('FONTSIZE',   (0, 1), (-1, -1), 8),
+        ('WORDWRAP',   (0, 0), (-1, -1), 'CJK'),
+        ('VALIGN',     (0, 0), (-1, -1), 'TOP'),
+    ]
+    story.append(_tbl(risk_rows, cw_r, extra=risk_extra))
     story.append(Spacer(1, 0.14*inch))
 
     # Scenario analysis
@@ -1399,7 +1571,11 @@ def run_pdf(ticker: str, stats: dict, fin_data: dict,
         story.append(NextPageTemplate('body'))
         story.append(PageBreak())
 
-        # Pages 2–10: content
+        # Page 2: Analyst's Note
+        story += _section_analyst_note(
+            styles, stats, fin_data, dcf_result, research, cov_result)
+
+        # Pages 3–11: content
         story += _section_exec_summary(
             styles, stats, fin_data, research, comp_result, cov_result, dcf_result)
         story += _section_financials(styles, stats, fin_data)

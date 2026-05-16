@@ -152,7 +152,7 @@ def main() -> int:
     md_path.write_text(markdown, encoding="utf-8")
     print(f"Saved: {md_path.name}")
 
-    n_sheets = 8
+    n_sheets = 7
     if dcf_result and not dcf_result.get("error"):
         n_sheets += 1
     if research:

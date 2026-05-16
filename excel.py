@@ -2539,12 +2539,12 @@ def _build_transcript_sheet(wb, transcript_result: dict | None, ticker: str) -> 
 
         # ── Section 3: EPS Surprise Chart ────────────────────────────────────
         if len(history) >= 2:
-            # Write chart source data to hidden columns (J, K)
+            # Write chart source data to columns P/Q (hidden — outside visible area)
             chart_src_row = row
             for i, q in enumerate(history):
-                ws.cell(row=chart_src_row + i, column=10).value = q.get("date", "")
+                ws.cell(row=chart_src_row + i, column=16).value = q.get("date", "")
                 surp = q.get("eps_surprise")
-                ws.cell(row=chart_src_row + i, column=11).value = surp
+                ws.cell(row=chart_src_row + i, column=17).value = surp
 
             n_pts = len(history)
             bar_chart = BarChart()
@@ -2556,15 +2556,19 @@ def _build_transcript_sheet(wb, transcript_result: dict | None, ticker: str) -> 
             bar_chart.height   = 10
             bar_chart.legend   = None
 
-            data_ref = Reference(ws, min_col=11, min_row=chart_src_row,
+            data_ref = Reference(ws, min_col=17, min_row=chart_src_row,
                                  max_row=chart_src_row + n_pts - 1)
-            cats_ref = Reference(ws, min_col=10, min_row=chart_src_row,
+            cats_ref = Reference(ws, min_col=16, min_row=chart_src_row,
                                  max_row=chart_src_row + n_pts - 1)
             bar_chart.add_data(data_ref)
             bar_chart.set_categories(cats_ref)
 
             ws.add_chart(bar_chart, f"A{row}")
             row += 18
+
+            # Hide source-data columns so they don't appear in the visible sheet
+            ws.column_dimensions["P"].hidden = True
+            ws.column_dimensions["Q"].hidden = True
 
     # ── Column widths ─────────────────────────────────────────────────────────
     for col, w in zip("ABCDEFGH", [16, 14, 14, 13, 11, 15, 15, 4]):
