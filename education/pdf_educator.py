@@ -34,7 +34,8 @@ def _styles(audience: str) -> dict:
     base = getSampleStyleSheet()
 
     def _p(name, **kw) -> ParagraphStyle:
-        return ParagraphStyle(name, fontName="Times-Roman", **kw)
+        kw.setdefault("fontName", "Times-Roman")
+        return ParagraphStyle(name, **kw)
 
     return {
         "cover_title": _p("cover_title", fontSize=26, leading=32,
