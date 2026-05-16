@@ -3,7 +3,7 @@
 ## 1. PROJECT SUMMARY
 Professional stock analyzer CLI (`python3 main.py TICKER`). Stack: Python 3.9, yfinance, FMP REST API, SEC EDGAR REST API (free, no key), anthropic SDK (claude-sonnet-4-6), openpyxl, python-dotenv, NewsAPI, requests. Pipeline: yfinance + FMP parallel fetch → compute stats + DCF → peer competitive fetch → analyst coverage fetch → earnings beat/miss parse → SEC EDGAR filing parse → Claude API analysis (Sonnet 4.6, MAX_TOKENS=4096) → 3 parallel research agents → markdown report + 16-sheet Goldman-formatted Excel workbook. Secrets in `.env` (ANTHROPIC_API_KEY, NEWS_API_KEY, FMP_API_KEY) — never committed. User is a finance student; explain financial concepts when introducing new analysis features, skip coding basics.
 
-**Report output:** `reports/TICKER/TICKER_YYYYMMDD_HHMM.{xlsx,md}` (timestamped archive) + `reports/TICKER/TICKER_latest.{xlsx,md}` (always current). With `--pitch`: also `*_pitch.pptx`. With `--pdf`: also `*_research.pdf`. `--full` sets both. Ticker subfolder created automatically.
+**Report output:** `reports/TICKER/` — one file per output type, numbered for Finder sort order: `01_TICKER_Excel_Report.xlsx`, `02_TICKER_Research_Report.pdf` (`--pdf`), `03_TICKER_Pitch_Deck.pptx` (`--pitch`), `04_TICKER_Education_Guide.pdf` (`--education`), `05_TICKER_Analysis.md`. Each run overwrites the previous. `--full` sets `--pdf + --pitch`. Ticker subfolder created automatically.
 
 ## 2. FILE MAP
 Read ONLY the file listed. Never open additional files for a single-file task.

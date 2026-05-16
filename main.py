@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import argparse
-import shutil
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -28,18 +26,21 @@ def main() -> int:
     ticker = args.ticker.upper()
 
     # ── Output paths ──────────────────────────────────────────────────────────
-    # Timestamped archive:  reports/AAPL/AAPL_20260514_1630.{xlsx,md}
-    # Quick-access latest:  reports/AAPL/AAPL_latest.{xlsx,md}
+    # One file per output type, numbered for Finder sort order.
+    # reports/AAPL/01_AAPL_Excel_Report.xlsx
+    # reports/AAPL/02_AAPL_Research_Report.pdf
+    # reports/AAPL/03_AAPL_Pitch_Deck.pptx
+    # reports/AAPL/04_AAPL_Education_Guide.pdf
+    # reports/AAPL/05_AAPL_Analysis.md
     reports_dir = Path(__file__).parent / "reports"
     ticker_dir  = reports_dir / ticker
     ticker_dir.mkdir(parents=True, exist_ok=True)
 
-    stamp    = datetime.now().strftime("%Y%m%d_%H%M")
-    stem     = f"{ticker}_{stamp}"
-    md_path  = ticker_dir / f"{stem}.md"
-    xl_path  = ticker_dir / f"{stem}.xlsx"
-    md_latest = ticker_dir / f"{ticker}_latest.md"
-    xl_latest = ticker_dir / f"{ticker}_latest.xlsx"
+    xl_path    = ticker_dir / f"01_{ticker}_Excel_Report.xlsx"
+    pdf_path   = ticker_dir / f"02_{ticker}_Research_Report.pdf"
+    pitch_path = ticker_dir / f"03_{ticker}_Pitch_Deck.pptx"
+    edu_path   = ticker_dir / f"04_{ticker}_Education_Guide.pdf"
+    md_path    = ticker_dir / f"05_{ticker}_Analysis.md"
 
     from fetcher import fetch_stock_data, fetch_news
     from analyzer import compute_stats, compute_financials
@@ -149,9 +150,7 @@ def main() -> int:
     if cov_assessment and not analyst_cov_result.get("error"):
         analyst_cov_result["claude"] = cov_assessment
     md_path.write_text(markdown, encoding="utf-8")
-    shutil.copy2(md_path, md_latest)
-    print(f"Saved: {md_path}")
-    print(f"  → {md_latest.name}")
+    print(f"Saved: {md_path.name}")
 
     n_sheets = 9
     if dcf_result and not dcf_result.get("error"):
@@ -173,13 +172,25 @@ def main() -> int:
                 markdown, news_sentiment, dcf_result, research, comp_result,
                 analyst_cov_result, transcript_result, sec_result,
                 insider_result=insider_result, output_path=str(xl_path))
-    shutil.copy2(xl_path, xl_latest)
-    print(f"Saved: {xl_path}")
-    print(f"  → {xl_latest.name}")
+    print(f"Saved: {xl_path.name}")
+
+    pitch_result = {"error": "not requested"}
+    if args.pitch:
+        print("Building pitch deck (12 slides)...")
+        pitch_result = run_pitch(
+            ticker, stats, fin_data,
+            dcf_result=dcf_result,
+            research=research,
+            comp_result=comp_result,
+            cov_result=analyst_cov_result,
+            out_path=str(pitch_path),
+        )
+        if pitch_result.get("error"):
+            print(f"  Pitch deck failed: {pitch_result['error']}")
+        else:
+            print(f"Saved: {pitch_path.name}")
 
     if args.pdf:
-        pdf_path   = ticker_dir / f"{stem}_research.pdf"
-        pdf_latest = ticker_dir / f"{ticker}_latest_research.pdf"
         print("Building equity research PDF...")
         pdf_result = run_pdf(
             ticker, stats, fin_data,
@@ -194,28 +205,7 @@ def main() -> int:
             if pdf_result.get("traceback"):
                 print(pdf_result["traceback"][:800])
         else:
-            shutil.copy2(pdf_path, pdf_latest)
-            print(f"Saved: {pdf_path}")
-            print(f"  → {pdf_latest.name}")
-
-    if args.pitch:
-        pitch_path   = ticker_dir / f"{stem}_pitch.pptx"
-        pitch_latest = ticker_dir / f"{ticker}_latest_pitch.pptx"
-        print("Building pitch deck (12 slides)...")
-        pitch_result = run_pitch(
-            ticker, stats, fin_data,
-            dcf_result=dcf_result,
-            research=research,
-            comp_result=comp_result,
-            cov_result=analyst_cov_result,
-            out_path=str(pitch_path),
-        )
-        if pitch_result.get("error"):
-            print(f"  Pitch deck failed: {pitch_result['error']}")
-        else:
-            shutil.copy2(pitch_path, pitch_latest)
-            print(f"Saved: {pitch_path}")
-            print(f"  → {pitch_latest.name}")
+            print(f"Saved: {pdf_path.name}")
 
     if args.education:
         from education.content_engine import run_content_engine
@@ -229,26 +219,18 @@ def main() -> int:
         if edu_content.get("error"):
             print(f"  Education content failed: {edu_content['error']}")
         else:
-            # Add Excel comments (in place — never regenerates the workbook)
             n_comments = add_excel_comments(str(xl_path), edu_content["excel_comments"], audience)
-            shutil.copy2(xl_path, xl_latest)
             print(f"  Excel: {n_comments} comments added → {xl_path.name}")
 
-            # Add PPT notes if pitch deck was generated this run
             if args.pitch and not pitch_result.get("error"):
                 n_slides = add_ppt_notes(str(pitch_path), edu_content["ppt_notes"])
-                shutil.copy2(pitch_path, pitch_latest)
                 print(f"  PowerPoint: {n_slides} slides annotated → {pitch_path.name}")
 
-            # Companion PDF
-            edu_pdf_path   = ticker_dir / f"{stem}_education_{audience}.pdf"
-            edu_pdf_latest = ticker_dir / f"{ticker}_latest_education_{audience}.pdf"
-            pdf_res = build_companion_pdf(ticker, edu_content, str(edu_pdf_path), audience)
+            pdf_res = build_companion_pdf(ticker, edu_content, str(edu_path), audience)
             if pdf_res.get("error"):
                 print(f"  Companion PDF failed: {pdf_res['error']}")
             else:
-                shutil.copy2(edu_pdf_path, edu_pdf_latest)
-                print(f"  Companion PDF saved → {edu_pdf_path.name}")
+                print(f"  Companion PDF saved → {edu_path.name}")
 
     return 0
 
