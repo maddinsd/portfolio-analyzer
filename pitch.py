@@ -665,11 +665,17 @@ def _slide_financials(prs, stats: dict, fin_data: dict):
     def _pct_str(v):
         return f"{v:.1f}%" if v is not None else "—"
 
+    def _margin_yoy(v_list):
+        if len(v_list) >= 2 and v_list[0] is not None and v_list[1] is not None:
+            delta = round(v_list[0] - v_list[1], 1)
+            return f"+{delta:.1f}pp" if delta >= 0 else f"{delta:.1f}pp"
+        return "—"
+
     rows_data = [
         ("Revenue",          [_fmt_m(v) for v in rev],  _fmt_pct(yoy_rev[0] if yoy_rev else None, plus=True)),
-        ("Gross Margin",     [_pct_str(v) for v in gm], "—"),
-        ("Operating Margin", [_pct_str(v) for v in om], "—"),
-        ("Net Margin",       [_pct_str(v) for v in nm], "—"),
+        ("Gross Margin",     [_pct_str(v) for v in gm], _margin_yoy(gm)),
+        ("Operating Margin", [_pct_str(v) for v in om], _margin_yoy(om)),
+        ("Net Margin",       [_pct_str(v) for v in nm], _margin_yoy(nm)),
         ("Free Cash Flow",   [_fmt_m(v) for v in fcf],  _fmt_pct(a_cf.get("yoy_fcf"), plus=True)),
     ]
 
@@ -704,7 +710,7 @@ def _slide_dcf(prs, stats: dict, fin_data: dict, dcf_result: dict | None):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     _add_header(slide, "DCF Valuation", 6)
 
-    if not dcf_result or dcf_result.get("error"):
+    if not dcf_result or dcf_result.get("error") or not dcf_result.get("valuation"):
         err = (dcf_result or {}).get("error", "DCF data unavailable")
         _txt(slide, f"DCF analysis unavailable: {err}",
              _ML, _CT, Inches(12.5), Inches(1.0), size=12, color=_MGREY, italic=True)

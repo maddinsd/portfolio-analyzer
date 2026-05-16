@@ -6,6 +6,8 @@ import re
 import zipfile
 from datetime import date as _date_type
 
+from utils import get_conviction
+
 import openpyxl
 from openpyxl.chart import BarChart, LineChart, Reference
 from openpyxl.chart.legend import Legend
@@ -290,6 +292,11 @@ _DRY_RUN_PLACEHOLDER = (
 )
 
 
+def _get_analysis_text(markdown: str) -> str:
+    """Strip the leading ```json...``` sentiment/comp/cov block Claude prepends."""
+    return re.sub(r'```json[\s\S]*?```\s*', '', markdown, count=1).lstrip()
+
+
 def _build_analysis_sheet(wb, markdown: str) -> None:
     ws = wb.create_sheet("Analysis")
 
@@ -311,6 +318,7 @@ def _build_analysis_sheet(wb, markdown: str) -> None:
         ws.row_dimensions[3].height = 28
         return
 
+    markdown = _get_analysis_text(markdown)
     lines = markdown.split("\n")
 
     # Pre-scan table column widths
@@ -1318,7 +1326,7 @@ def _build_competitive_sheet(wb, comp_result: dict | None) -> None:
         return
 
     ws = wb.create_sheet("Competitive Analysis")
-    N  = 10   # columns A–J
+    N  = 12   # columns A–L
 
     if comp_result.get("error"):
         _fin_title(ws, 1, "COMPETITIVE ANALYSIS", N)
@@ -1401,7 +1409,7 @@ def _build_competitive_sheet(wb, comp_result: dict | None) -> None:
     row += 1
     _fin_col_hdr(ws, row, ["Company", "Ticker", "Mkt Cap",
                             "Rev Growth", "Gross Margin", "Op Margin",
-                            "ROE", "D/E", "Fwd P/E", "vs Median P/E"])
+                            "ROE", "D/E", "Fwd P/E", "EV/EBITDA", "EV/Rev", "vs Median P/E"])
     row += 1
 
     _YLW_BG = "FFF9C4"; _YLW_FG = "7D5A00"
@@ -1442,6 +1450,7 @@ def _build_competitive_sheet(wb, comp_result: dict | None) -> None:
         _pp(target.get("rev_growth")), _pp(target.get("gross_margin")),
         _pp(target.get("op_margin")),  _pp(target.get("roe")),
         _pp(target.get("de")),         _pf(target.get("fpe")),
+        _pf(target.get("ev_ebitda")),  _pf(target.get("ev_rev")),
         _pm(fpe_prem),
     ]
 
@@ -1452,13 +1461,10 @@ def _build_competitive_sheet(wb, comp_result: dict | None) -> None:
         c.border    = _BORDER
         c.alignment = Alignment(horizontal="left" if ci == 0 else "right", vertical="center")
 
-        if ci < 2:   # Company, Ticker — navy
+        if ci < 3:   # Company, Ticker, Mkt Cap — navy
             c.font = _f(9, bold=True, color=_WHITE)
             c.fill = _fill(_NAVY)
-        elif ci == 2:  # Mkt Cap — navy
-            c.font = _f(9, bold=True, color=_WHITE)
-            c.fill = _fill(_NAVY)
-        elif ci == 9:  # vs Median P/E — navy
+        elif ci == 11:  # vs Median P/E — navy
             c.font = _f(9, bold=True, color=_WHITE)
             c.fill = _fill(_NAVY)
         else:
@@ -1486,6 +1492,7 @@ def _build_competitive_sheet(wb, comp_result: dict | None) -> None:
             _pp(p.get("rev_growth")), _pp(p.get("gross_margin")),
             _pp(p.get("op_margin")),  _pp(p.get("roe")),
             _pp(p.get("de")),         _pf(p.get("fpe")),
+            _pf(p.get("ev_ebitda")),  _pf(p.get("ev_rev")),
             "—",
         ]
         for ci, val in enumerate(vals):
@@ -1504,7 +1511,8 @@ def _build_competitive_sheet(wb, comp_result: dict | None) -> None:
         "Peer Median", "—", "—",
         _pp(medians.get("rev_growth")), _pp(medians.get("gross_margin")),
         _pp(medians.get("op_margin")),  _pp(medians.get("roe")),
-        "—", _pf(medians.get("fpe")), "—",
+        "—", _pf(medians.get("fpe")),
+        _pf(medians.get("ev_ebitda")),  _pf(medians.get("ev_rev")), "—",
     ]
     for ci, val in enumerate(med_vals):
         c           = ws.cell(row=row, column=ci + 1)
@@ -1599,7 +1607,7 @@ def _build_competitive_sheet(wb, comp_result: dict | None) -> None:
     ws.add_chart(chart, f"A{row + 1}")
 
     # ── Column widths ─────────────────────────────────────────────────────────
-    for col, w in zip("ABCDEFGHIJ", [24, 10, 12, 14, 15, 14, 11, 10, 12, 16]):
+    for col, w in zip("ABCDEFGHIJKL", [24, 10, 12, 14, 15, 14, 11, 10, 12, 12, 11, 16]):
         ws.column_dimensions[col].width = w
 
 
@@ -2071,7 +2079,8 @@ def _polish_charts(output_path: str, ticker: str) -> None:
         raise
 
 
-def _build_analyst_coverage_sheet(wb, cov_result: dict | None, ticker: str) -> None:
+def _build_analyst_coverage_sheet(wb, cov_result: dict | None, ticker: str,
+                                   transcript_result: dict | None = None) -> None:
     if not cov_result:
         return
 
@@ -2163,11 +2172,19 @@ def _build_analyst_coverage_sheet(wb, cov_result: dict | None, ticker: str) -> N
     # Consensus rating coloring
     is_buy  = rating == "Buy"
     is_sell = rating == "Sell"
+    beat_streak_cov = (transcript_result.get("beat_streak", 0)
+                       if transcript_result and not transcript_result.get("error") else 0)
+    conviction_lbl  = get_conviction(bull, beat_streak_cov)
+    conv_is_high = conviction_lbl == "High"
+    conv_is_low  = conviction_lbl == "Low"
+
     _kv(row, "Consensus Rating", rating, navy=not is_buy and not is_sell,
         green=is_buy, red=is_sell); row += 1
     _kv(row, "Signal (Claude)",   claude.get("signal", "—"), alt=False); row += 1
     _kv(row, "Bull Ratio",        _pp(bull), alt=True); row += 1
     _kv(row, "Revision Bias",     claude.get("revision_bias", "—")); row += 1
+    _kv(row, "Conviction",        conviction_lbl,
+        green=conv_is_high, red=conv_is_low, alt=True); row += 1
 
     summary_text = claude.get("summary", "")
     if summary_text:
@@ -2466,10 +2483,14 @@ def _build_transcript_sheet(wb, transcript_result: dict | None, ticker: str) -> 
             return "N/A" if v is None else f"${v:.2f}"
 
         def _fmts(v):
-            return "N/A" if v is None else f"{v:+.1f}%"
+            if v is None or (isinstance(v, float) and math.isnan(v)):
+                return "N/A"
+            return f"{v:+.1f}%"
 
         def _fmtr(v):
-            return "N/A" if v is None else f"${v:.0f}M"
+            if v is None or (isinstance(v, float) and math.isnan(v)):
+                return "N/A"
+            return f"${v:.0f}M"
 
         # Write data rows + capture chart data positions
         chart_data_start = row
@@ -2520,9 +2541,12 @@ def _build_transcript_sheet(wb, transcript_result: dict | None, ticker: str) -> 
                     else:
                         c.font = _f(9); c.fill = _fill(_ROW_ALT if alt else _WHITE)
                 elif ci == 6:  # Rev Growth — color by sign
-                    if rev_growth is not None and rev_growth > 0:
+                    _rg = rev_growth if (
+                        rev_growth is not None and not (isinstance(rev_growth, float) and math.isnan(rev_growth))
+                    ) else None
+                    if _rg is not None and _rg > 0:
                         c.font = _f(9, color=_GRN_FG); c.fill = _fill(_GRN_BG)
-                    elif rev_growth is not None and rev_growth < 0:
+                    elif _rg is not None and _rg < 0:
                         c.font = _f(9, color=_RED_FG); c.fill = _fill(_RED_BG)
                     else:
                         c.font = _f(9); c.fill = _fill(_ROW_ALT if alt else _WHITE)
@@ -2558,12 +2582,14 @@ def _build_transcript_sheet(wb, transcript_result: dict | None, ticker: str) -> 
                 ws.cell(row=r_idx, column=16).value = lbl
                 surp     = q.get("eps_surprise")
                 beat_val = q.get("beat")
+                # Guard NaN — openpyxl writes it as a string; chart ignores None
+                safe_surp = (surp if surp is None or not (isinstance(surp, float) and math.isnan(surp)) else None)
                 if beat_val is True:
-                    ws.cell(row=r_idx, column=17).value = surp
+                    ws.cell(row=r_idx, column=17).value = safe_surp
                     ws.cell(row=r_idx, column=18).value = None
                 elif beat_val is False:
                     ws.cell(row=r_idx, column=17).value = None
-                    ws.cell(row=r_idx, column=18).value = surp
+                    ws.cell(row=r_idx, column=18).value = safe_surp
                 else:
                     ws.cell(row=r_idx, column=17).value = None
                     ws.cell(row=r_idx, column=18).value = None
@@ -3065,7 +3091,7 @@ def build_excel(ticker: str, stats: dict, fin_data: dict,
     _build_comps_sheet(wb, research)
     _build_earnings_sheet(wb, research)
     _build_competitive_sheet(wb, comp_result)
-    _build_analyst_coverage_sheet(wb, analyst_cov_result, ticker)
+    _build_analyst_coverage_sheet(wb, analyst_cov_result, ticker, transcript_result)
     _build_transcript_sheet(wb, transcript_result, ticker)
     _build_sec_sheet(wb, sec_result, ticker)
     _build_insider_sheet(wb, insider_result, ticker)

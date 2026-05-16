@@ -30,6 +30,10 @@ def compute_stats(data: dict) -> dict:
     high_52w = _safe(info.get("fiftyTwoWeekHigh"))
     low_52w = _safe(info.get("fiftyTwoWeekLow"))
 
+    fcf_raw   = info.get("freeCashflow")
+    mktcap    = info.get("marketCap")
+    fcf_yield = _safe(fcf_raw / mktcap * 100) if fcf_raw and mktcap and mktcap > 0 else None
+
     pct_from_high = _safe((current_price / high_52w - 1) * 100) if current_price and high_52w else None
     pct_from_low = _safe((current_price / low_52w - 1) * 100) if current_price and low_52w else None
 
@@ -54,6 +58,7 @@ def compute_stats(data: dict) -> dict:
         "pct_from_52w_high": pct_from_high,
         "pct_from_52w_low": pct_from_low,
         "revenue_growth_yoy": revenue_growth,
+        "fcf_yield": fcf_yield,
     }
 
 

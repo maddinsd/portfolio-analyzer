@@ -1,0 +1,20 @@
+{
+  "build": "final_12_fixes",
+  "stages": {
+    "1_analysis_sheet_json": true,
+    "2_competitive_data_parsing": true,
+    "3_coverage_data_parsing": true,
+    "4_earnings_revenue_nan": true,
+    "5_earnings_chart_empty": true,
+    "6_pdf_chart_legend_overlap": true,
+    "7_comps_evebitda_evrevenue": true,
+    "8_fcf_yield": true,
+    "9_valuation_range_dashed_line": true,
+    "10_pptx_yoy_margins": true,
+    "11_pptx_dcf_blank": true,
+    "12_conviction_consistency": true,
+    "13_verify_ceg_aapl_commit": true
+  },
+  "completed": "2026-05-16",
+  "resume_instruction": "All 13 stages complete. Build done."
+}

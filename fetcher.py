@@ -21,6 +21,7 @@ INFO_FIELDS = [
     "totalDebt", "freeCashflow", "dividendYield", "trailingEps", "forwardEps",
     "recommendationMean", "targetMeanPrice", "numberOfAnalystOpinions",
     "returnOnEquity", "targetHighPrice", "targetLowPrice",
+    "enterpriseValue", "ebitda",
 ]
 
 _FMP_BASE = "https://financialmodelingprep.com/stable"

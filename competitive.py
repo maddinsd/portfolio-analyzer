@@ -64,8 +64,8 @@ def _fmp_peer_profile(ticker: str) -> dict:
         return {}
     p = raw[0]
     return {
-        "shortName":  p.get("companyName") or ticker,
-        "marketCap":  p.get("mktCap"),
+        "shortName":       p.get("companyName") or ticker,
+        "marketCap":       p.get("mktCap"),
         # Margin/ratio fields not available from /profile — will render as N/A
         "revenueGrowth":    None,
         "grossMargins":     None,
@@ -73,6 +73,8 @@ def _fmp_peer_profile(ticker: str) -> dict:
         "returnOnEquity":   None,
         "debtToEquity":     None,
         "forwardPE":        None,
+        "enterpriseValue":  None,
+        "ebitda":           None,
     }
 
 
@@ -142,6 +144,11 @@ def _candidate_tickers(industry: str, sector: str, target: str) -> tuple[list[st
 
 
 def _extract_metrics(ticker: str, info: dict) -> dict:
+    ev    = info.get("enterpriseValue")
+    ebitda = info.get("ebitda")
+    rev   = info.get("totalRevenue")
+    ev_ebitda = _safe_f(ev / ebitda) if ev and ebitda and ebitda > 0 else None
+    ev_rev    = _safe_f(ev / rev)    if ev and rev    and rev    > 0 else None
     return {
         "ticker":       ticker,
         "name":         (info.get("shortName") or ticker)[:22],
@@ -152,6 +159,8 @@ def _extract_metrics(ticker: str, info: dict) -> dict:
         "roe":          _safe_pct(info.get("returnOnEquity")),
         "de":           _safe_f(info.get("debtToEquity")),
         "fpe":          _safe_f(info.get("forwardPE")),
+        "ev_ebitda":    ev_ebitda,
+        "ev_rev":       ev_rev,
     }
 
 
@@ -215,7 +224,7 @@ def run_competitive(ticker: str, stats: dict, fin_data: dict) -> dict:
     peer_m = [_extract_metrics(t, i) for t, i in chosen]
 
     # Compute peer medians and target tercile rankings
-    fields  = ["rev_growth", "gross_margin", "op_margin", "roe", "fpe"]
+    fields  = ["rev_growth", "gross_margin", "op_margin", "roe", "fpe", "ev_ebitda", "ev_rev"]
     medians: dict = {}
     ranks:   dict = {}
     for f in fields:

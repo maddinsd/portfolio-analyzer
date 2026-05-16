@@ -8,6 +8,8 @@ import sys
 from datetime import date as _date
 from functools import partial
 
+from utils import get_conviction
+
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle
@@ -345,7 +347,8 @@ def _chart_revenue_fcf(fin_data: dict, width: float = 5.5, height: float = 2.4) 
         ax.grid(axis='y', color=c['lgrey'], linewidth=0.5, zorder=0)
         ax.spines[['top', 'right']].set_visible(False)
         ax.spines[['left', 'bottom']].set_color(c['mgrey'])
-        ax.legend(fontsize=7, framealpha=0.9, loc='lower right')
+        ax.legend(fontsize=7, framealpha=0, bbox_to_anchor=(0.5, -0.18),
+                  loc='upper center', ncol=2)
         ax.set_title('Revenue & Free Cash Flow ($B)', fontsize=8, color=c['navy'],
                      fontweight='bold', pad=4)
 
@@ -395,7 +398,8 @@ def _chart_margins(fin_data: dict, width: float = 5.5, height: float = 2.4) -> I
         ax.grid(axis='y', color=c['lgrey'], linewidth=0.5, zorder=0)
         ax.spines[['top', 'right']].set_visible(False)
         ax.spines[['left', 'bottom']].set_color(c['mgrey'])
-        ax.legend(fontsize=7, framealpha=0, loc='upper left')
+        ax.legend(fontsize=7, framealpha=0, bbox_to_anchor=(0.5, -0.18),
+                  loc='upper center', ncol=3)
         ax.set_title('Margin Trends', fontsize=8, color=c['navy'],
                      fontweight='bold', pad=4)
 
@@ -486,7 +490,7 @@ def _chart_football(stats: dict, dcf_result, comp_result, cov_result,
                         style='italic')
 
         if px and chart_min < px < chart_max:
-            ax.axvline(px, color=c['red'], linewidth=1.5, zorder=4)
+            ax.axvline(px, color=c['red'], linewidth=1.5, linestyle='--', zorder=4)
             ax.text(px, 3.6, f'${px:,.2f}', ha='center', va='bottom',
                     fontsize=7, color=c['red'], fontweight='bold')
 
@@ -972,7 +976,8 @@ def _section_analyst_note(styles: dict, stats: dict, fin_data: dict,
 # ── Page 3: Executive Summary ─────────────────────────────────────────────────
 
 def _section_exec_summary(styles: dict, stats: dict, fin_data: dict,
-                          research, comp_result, cov_result, dcf_result) -> list:
+                          research, comp_result, cov_result, dcf_result,
+                          transcript_result=None) -> list:
     info   = stats.get("info", {})
     rating = _fallback_rating(research, cov_result)
     target = _fallback_target(research, cov_result)
@@ -1020,6 +1025,10 @@ def _section_exec_summary(styles: dict, stats: dict, fin_data: dict,
     bull_rat = cov_result.get("bull_ratio") if cov_result and not cov_result.get("error") else None
     iv       = _fp(_sa(dcf_result, "valuation", "intrinsic")) if dcf_result and not dcf_result.get("error") else "—"
 
+    beat_streak_es = (transcript_result.get("beat_streak", 0)
+                      if transcript_result and not transcript_result.get("error") else 0)
+    conviction_es  = get_conviction(bull_rat, beat_streak_es)
+
     metric_pairs = [
         ("Current Price",    _fp(px)),
         ("Price Target",     target_str),
@@ -1029,9 +1038,10 @@ def _section_exec_summary(styles: dict, stats: dict, fin_data: dict,
         ("P/E (Forward)",    fpe_str),
         ("DCF Intrinsic",    iv),
         ("Analyst Coverage", f"{n_an} analysts" if n_an else "—"),
+        ("Conviction",       conviction_es),
     ]
     if bull_rat is not None:
-        metric_pairs[-1] = ("Bull Ratio", f"{bull_rat:.1f}%")
+        metric_pairs[-2] = ("Bull Ratio", f"{bull_rat:.1f}%")
 
     # Rating style
     r_style_key = ("rating_buy" if rating_uc == "BUY" else
@@ -1294,14 +1304,26 @@ def _section_research(styles: dict, stats: dict, fin_data: dict,
     ok_comp = comp_result and not comp_result.get("error")
 
     moat_text = ""
+    moat_extra = ""
     if ok_comp:
         claude_data = comp_result.get("claude")
         if isinstance(claude_data, str):
             moat_text = claude_data
         elif isinstance(claude_data, dict):
-            mt = claude_data.get("moat_type", "")
-            ms = claude_data.get("moat_strength", "")
-            moat_text = f"Moat: {mt}. {ms}".strip() if mt else ""
+            mt   = claude_data.get("moat_type", "")
+            ms   = claude_data.get("moat_strength", "")
+            pos  = claude_data.get("position", "")
+            risk = claude_data.get("key_risk", "")
+            asmt = claude_data.get("assessment", "")
+            parts = []
+            if mt:
+                parts.append(f"Moat: {mt}" + (f" ({ms})" if ms else ""))
+            if pos:
+                parts.append(f"Position: {pos}")
+            if risk:
+                parts.append(f"Key Risk (24mo): {risk}")
+            moat_text  = "  ·  ".join(parts) if parts else ""
+            moat_extra = asmt
 
     if not moat_text and ok_comp:
         rks  = comp_result.get("rankings", {})
@@ -1320,6 +1342,8 @@ def _section_research(styles: dict, stats: dict, fin_data: dict,
         moat_text = "Competitive analysis data unavailable."
 
     story.append(Paragraph(moat_text[:800], styles["body"]))
+    if moat_extra:
+        story.append(Paragraph(moat_extra[:800], styles["body"]))
     story.append(Spacer(1, 0.1*inch))
 
     # Peer metrics table
@@ -1375,7 +1399,20 @@ def _section_research(styles: dict, stats: dict, fin_data: dict,
             cov_pairs.append(("Sell Ratings", str(sells)))
             cov_pairs.append(("Distribution", "Breakdown unavailable"))
 
+        # Claude signal / revision bias
+        claude_cov   = cov_result.get("claude") or {}
+        cov_signal   = claude_cov.get("signal", "")
+        rev_bias     = claude_cov.get("revision_bias", "")
+        cov_summary  = claude_cov.get("summary", "")
+        if cov_signal:
+            cov_pairs.append(("Signal (Claude)", cov_signal))
+        if rev_bias:
+            cov_pairs.append(("Revision Bias",   rev_bias))
+
         story.append(_metrics_table_2col(cov_pairs))
+        if cov_summary:
+            story.append(Spacer(1, 0.06*inch))
+            story.append(Paragraph(cov_summary[:600], styles["body_sm"]))
 
         # Recent targets table
         recents = cov_result.get("recent_targets", [])[:5]
@@ -1738,7 +1775,8 @@ def run_pdf(ticker: str, stats: dict, fin_data: dict,
 
         # Pages 3–11: content
         story += _section_exec_summary(
-            styles, stats, fin_data, research, comp_result, cov_result, dcf_result)
+            styles, stats, fin_data, research, comp_result, cov_result, dcf_result,
+            transcript_result=transcript_result)
         story += _section_financials(styles, stats, fin_data)
         story += _section_valuation(
             styles, stats, fin_data, dcf_result, comp_result, cov_result, research)
