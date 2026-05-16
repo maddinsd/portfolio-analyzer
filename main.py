@@ -32,7 +32,7 @@ def main() -> int:
     # reports/AAPL/03_AAPL_Pitch_Deck.pptx
     # reports/AAPL/04_AAPL_Education_Guide.pdf
     # reports/AAPL/05_AAPL_Analysis.md
-    reports_dir = Path(__file__).parent / "reports"
+    reports_dir = Path.home() / "Desktop" / "reports"
     ticker_dir  = reports_dir / ticker
     ticker_dir.mkdir(parents=True, exist_ok=True)
 
