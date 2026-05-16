@@ -217,7 +217,7 @@ def main() -> int:
         from education.pdf_educator import build_companion_pdf
 
         audience = args.audience
-        print(f"\nRunning education layer ({audience} audience) — 3 API calls...")
+        print(f"\nRunning education layer ({audience} audience) — 6 API calls...")
         edu_content = run_content_engine(
             ticker, stats, fin_data, dcf_result, audience,
             comp_result=comp_result,

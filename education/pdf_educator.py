@@ -1,11 +1,13 @@
 """
 Companion PDF generator — produces a 12-section guide + 40-term glossary.
 Uses reportlab with Times New Roman. No API calls — receives pre-generated content.
+Two-pass build: pass 1 captures section page positions; pass 2 fills TOC with real numbers.
 """
 from __future__ import annotations
 
 import re
 from datetime import date
+from io import BytesIO
 from pathlib import Path
 
 from reportlab.lib import colors
@@ -13,6 +15,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.platypus import (
+    Flowable,
     HRFlowable,
     KeepTogether,
     PageBreak,
@@ -37,6 +40,21 @@ _SHEET_RENAMES = {
     "Bull/Bear": "Analysis",
     "bull vs bear": "Analysis",
 }
+
+
+class _SectionAnchor(Flowable):
+    """Zero-height marker — records the current page number into `registry` when rendered."""
+    def __init__(self, key: str, registry: dict):
+        super().__init__()
+        self._key = key
+        self._registry = registry
+        self.width = self.height = 0
+
+    def wrap(self, aw, ah):
+        return 0, 0
+
+    def draw(self):
+        self._registry[self._key] = self.canv.getPageNumber()
 
 
 def _styles(audience: str) -> dict:
@@ -198,6 +216,126 @@ def _render_body_paragraphs(body_text: str, bullets: list[str], styles: dict) ->
     return flowables
 
 
+def _build_story_content(
+    ticker: str,
+    company_name: str,
+    aud_label: str,
+    today: str,
+    sections: list,
+    glossary: list,
+    pdf_content: str,
+    S: dict,
+    registry: dict,
+    page_nums: dict | None = None,
+) -> list:
+    """
+    Build the complete document story.
+    `registry` is filled with section→page during rendering (pass 1).
+    `page_nums` replaces '…' with real numbers in the TOC (pass 2).
+    """
+    story = []
+
+    # ── Cover page ────────────────────────────────────────────────────────
+    story.append(Spacer(1, 1.0 * inch))
+    story.append(Paragraph(f"{company_name} ({ticker})", S["cover_title"]))
+    story.append(Paragraph("Equity Research — Companion Guide", S["cover_sub"]))
+    story.append(Paragraph(aud_label, S["cover_sub"]))
+    story.append(Spacer(1, 0.3 * inch))
+    story.append(HRFlowable(width="100%", thickness=2, color=_NAVY))
+    story.append(Spacer(1, 0.12 * inch))
+    story.append(Paragraph("University of Cincinnati | Lindner College of Business", S["cover_meta"]))
+    story.append(Paragraph(f"Generated: {today}", S["cover_meta"]))
+    story.append(Spacer(1, 0.2 * inch))
+    story.append(Paragraph(
+        "This guide explains every section of the equity research workbook in plain terms. "
+        "Use it alongside the Excel report, pitch deck, and research PDF.",
+        S["body"],
+    ))
+    story.append(PageBreak())
+
+    # ── TOC page ─────────────────────────────────────────────────────────
+    story.append(Paragraph("Contents", S["cover_title"]))
+    story.append(Spacer(1, 0.15 * inch))
+
+    toc_data = [["Section", "Page"]]
+    if sections:
+        for title, _, _ in sections:
+            pg = str(page_nums[title]) if (page_nums and title in page_nums) else "…"
+            toc_data.append([title, pg])
+    else:
+        for i in range(1, 13):
+            toc_data.append([f"{i}. Guide Section", "…"])
+    gloss_pg = str(page_nums["__glossary__"]) if (page_nums and "__glossary__" in page_nums) else "…"
+    toc_data.append(["Glossary (Financial Terms)", gloss_pg])
+
+    toc_table = Table(toc_data, colWidths=[5.2 * inch, 1.3 * inch])
+    toc_table.setStyle(TableStyle([
+        ("BACKGROUND",    (0, 0), (-1, 0),  _NAVY),
+        ("TEXTCOLOR",     (0, 0), (-1, 0),  _WHITE),
+        ("FONTNAME",      (0, 0), (-1, 0),  "Times-Bold"),
+        ("FONTSIZE",      (0, 0), (-1, -1), 9.5),
+        ("ROWBACKGROUNDS",(0, 1), (-1, -1), [colors.white, _LIGHT]),
+        ("GRID",          (0, 0), (-1, -1), 0.4, colors.HexColor("#AAAAAA")),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 8),
+        ("TOPPADDING",    (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("ALIGN",         (1, 0), (1, -1),  "CENTER"),
+    ]))
+    story.append(toc_table)
+    story.append(PageBreak())
+
+    # ── Guide sections ────────────────────────────────────────────────────
+    for title, body_text, bullets in sections:
+        story.append(_SectionAnchor(title, registry))
+        block = [Paragraph(title, S["section_hdr"])]
+        block += _render_body_paragraphs(body_text, bullets, S)
+        story.append(KeepTogether(block[:3]))   # keep header + first para together
+        if len(block) > 3:
+            for item in block[3:]:
+                story.append(item)
+        story.append(Spacer(1, 0.08 * inch))
+
+    # Fallback if parsing produced nothing
+    if not sections and pdf_content:
+        for chunk in pdf_content.split("\n\n"):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            if re.match(r"^\d{1,2}\.", chunk[:6]):
+                story.append(Paragraph(_clean_title(chunk[:80]), S["section_hdr"]))
+            else:
+                story.append(Paragraph(_md_to_html(chunk), S["body"]))
+
+    story.append(PageBreak())
+
+    # ── Glossary ──────────────────────────────────────────────────────────
+    story.append(_SectionAnchor("__glossary__", registry))
+    story.append(Paragraph("Glossary", S["section_hdr"]))
+    story.append(Spacer(1, 0.1 * inch))
+
+    if glossary:
+        for term, definition in glossary:
+            clean_def = _md_to_html(definition)
+            entry = [
+                Paragraph(term, S["gloss_term"]),
+                Paragraph(clean_def, S["gloss_def"]),
+            ]
+            story.append(KeepTogether(entry))
+    else:
+        # Broadened fallback: title-case terms
+        for line in pdf_content.splitlines():
+            m = re.match(
+                r"^\**([A-Za-z][A-Za-z0-9 /()&,.-]{1,50})\**\s*:\s*(.+)$",
+                line.strip(),
+            )
+            if m:
+                story.append(Paragraph(m.group(1).strip(), S["gloss_term"]))
+                story.append(Paragraph(_md_to_html(m.group(2).strip()), S["gloss_def"]))
+
+    return story
+
+
 def build_companion_pdf(
     ticker: str,
     content: dict,
@@ -207,6 +345,7 @@ def build_companion_pdf(
     """
     Builds companion PDF from pre-generated content dict.
     Returns {"error": None} or {"error": "message"}.
+    Two-pass build ensures TOC page numbers are accurate.
     """
     try:
         S = _styles(audience)
@@ -215,8 +354,7 @@ def build_companion_pdf(
         today        = date.today().strftime("%B %d, %Y")
         aud_label    = "Student Edition" if audience == "student" else "Professional Edition"
 
-        doc = SimpleDocTemplate(
-            out_path,
+        doc_kwargs = dict(
             pagesize=letter,
             leftMargin=0.85 * inch,
             rightMargin=0.85 * inch,
@@ -224,107 +362,28 @@ def build_companion_pdf(
             bottomMargin=0.9 * inch,
         )
 
-        story = []
-
-        # ── Cover page ────────────────────────────────────────────────────────
-        story.append(Spacer(1, 1.0 * inch))
-        story.append(Paragraph(f"{company_name} ({ticker})", S["cover_title"]))
-        story.append(Paragraph("Equity Research — Companion Guide", S["cover_sub"]))
-        story.append(Paragraph(aud_label, S["cover_sub"]))
-        story.append(Spacer(1, 0.3 * inch))
-        story.append(HRFlowable(width="100%", thickness=2, color=_NAVY))
-        story.append(Spacer(1, 0.12 * inch))
-        story.append(Paragraph(f"University of Cincinnati | Lindner College of Business", S["cover_meta"]))
-        story.append(Paragraph(f"Generated: {today}", S["cover_meta"]))
-        story.append(Spacer(1, 0.2 * inch))
-        story.append(Paragraph(
-            "This guide explains every section of the equity research workbook in plain terms. "
-            "Use it alongside the Excel report, pitch deck, and research PDF.",
-            S["body"],
-        ))
-        story.append(PageBreak())
-
-        # ── Parse sections up front (needed for TOC) ──────────────────────────
         sections, glossary = _parse_sections(pdf_content)
 
-        # ── Table of contents ─────────────────────────────────────────────────
-        story.append(Paragraph("Contents", S["cover_title"]))
-        story.append(Spacer(1, 0.15 * inch))
+        # ── Pass 1: render to BytesIO to capture section page positions ───────
+        reg1 = {}
+        story1 = _build_story_content(
+            ticker, company_name, aud_label, today,
+            sections, glossary, pdf_content, S, reg1,
+            page_nums=None,
+        )
+        buf = BytesIO()
+        tmp_doc = SimpleDocTemplate(buf, **doc_kwargs)
+        tmp_doc.build(story1, onFirstPage=_header_footer, onLaterPages=_header_footer)
 
-        # Build TOC rows from actual section titles
-        toc_data = [["Section", "Page"]]
-        if sections:
-            for title, _, _ in sections:
-                toc_data.append([title, "…"])
-        else:
-            for i in range(1, 13):
-                toc_data.append([f"{i}. Guide Section", "…"])
-        toc_data.append(["Glossary (Financial Terms)", "…"])
-
-        toc_table = Table(toc_data, colWidths=[5.2 * inch, 1.3 * inch])
-        toc_table.setStyle(TableStyle([
-            ("BACKGROUND",    (0, 0), (-1, 0),  _NAVY),
-            ("TEXTCOLOR",     (0, 0), (-1, 0),  _WHITE),
-            ("FONTNAME",      (0, 0), (-1, 0),  "Times-Bold"),
-            ("FONTSIZE",      (0, 0), (-1, -1), 9.5),
-            ("ROWBACKGROUNDS",(0, 1), (-1, -1), [colors.white, _LIGHT]),
-            ("GRID",          (0, 0), (-1, -1), 0.4, colors.HexColor("#AAAAAA")),
-            ("LEFTPADDING",   (0, 0), (-1, -1), 8),
-            ("RIGHTPADDING",  (0, 0), (-1, -1), 8),
-            ("TOPPADDING",    (0, 0), (-1, -1), 4),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-            ("ALIGN",         (1, 0), (1, -1),  "CENTER"),
-        ]))
-        story.append(toc_table)
-        story.append(PageBreak())
-
-        # ── Guide sections ────────────────────────────────────────────────────
-        for title, body_text, bullets in sections:
-            block = [Paragraph(title, S["section_hdr"])]
-            block += _render_body_paragraphs(body_text, bullets, S)
-            story.append(KeepTogether(block[:3]))   # keep header + first para together
-            if len(block) > 3:
-                for item in block[3:]:
-                    story.append(item)
-            story.append(Spacer(1, 0.08 * inch))
-
-        # Fallback if parsing produced nothing
-        if not sections and pdf_content:
-            for chunk in pdf_content.split("\n\n"):
-                chunk = chunk.strip()
-                if not chunk:
-                    continue
-                if re.match(r"^\d{1,2}\.", chunk[:6]):
-                    story.append(Paragraph(_clean_title(chunk[:80]), S["section_hdr"]))
-                else:
-                    story.append(Paragraph(_md_to_html(chunk), S["body"]))
-
-        story.append(PageBreak())
-
-        # ── Glossary ──────────────────────────────────────────────────────────
-        story.append(Paragraph("Glossary", S["section_hdr"]))
-        story.append(Spacer(1, 0.1 * inch))
-
-        if glossary:
-            for term, definition in glossary:
-                clean_def = _md_to_html(definition)
-                entry = [
-                    Paragraph(term, S["gloss_term"]),
-                    Paragraph(clean_def, S["gloss_def"]),
-                ]
-                story.append(KeepTogether(entry))
-        else:
-            # Broadened fallback: title-case terms
-            for line in pdf_content.splitlines():
-                m = re.match(
-                    r"^\**([A-Za-z][A-Za-z0-9 /()&,.-]{1,50})\**\s*:\s*(.+)$",
-                    line.strip(),
-                )
-                if m:
-                    story.append(Paragraph(m.group(1).strip(), S["gloss_term"]))
-                    story.append(Paragraph(_md_to_html(m.group(2).strip()), S["gloss_def"]))
-
-        doc.build(story, onFirstPage=_header_footer, onLaterPages=_header_footer)
+        # ── Pass 2: build final PDF with real page numbers ─────────────────────
+        reg2 = {}
+        story2 = _build_story_content(
+            ticker, company_name, aud_label, today,
+            sections, glossary, pdf_content, S, reg2,
+            page_nums=reg1,
+        )
+        doc = SimpleDocTemplate(out_path, **doc_kwargs)
+        doc.build(story2, onFirstPage=_header_footer, onLaterPages=_header_footer)
 
         return {"error": None, "path": out_path}
 

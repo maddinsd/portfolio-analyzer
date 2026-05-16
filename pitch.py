@@ -482,9 +482,8 @@ def _slide_overview(prs, stats: dict, fin_data: dict):
 
     info     = stats.get("info", {})
     desc_raw = info.get("longBusinessSummary") or "Business description not available."
-    desc     = (desc_raw[:420].rsplit(' ', 1)[0] + '...') if len(desc_raw) > 420 else desc_raw
-    _txt(slide, desc, _ML, _CT, Inches(12.5), Inches(1.35),
-         size=11, color=_DGREY, wrap=True)
+    _txt(slide, desc_raw, _ML, _CT, Inches(12.5), Inches(1.35),
+         size=9.5, color=_DGREY, wrap=True)
 
     _rect(slide, _ML, Inches(2.15), Inches(12.5), Inches(0.02), fill=_LGREY)
 
@@ -616,11 +615,10 @@ def _slide_thesis(prs, research: dict | None,
     for i, (text, (cx, cy)) in enumerate(zip(points[:4], positions)):
         _rect(slide, cx, cy, Inches(5.9), BOX_H, fill=_LGREY, border=_LGREY)
         _rect(slide, cx, cy, Inches(0.06), BOX_H, fill=_NAVY)
-        display = text if len(text) <= 240 else text[:237] + "…"
-        _txt(slide, display,
+        _txt(slide, text,
              cx + Inches(0.15), cy + Inches(0.1),
              Inches(5.65), BOX_H - Inches(0.12),
-             size=9, color=_DGREY, wrap=True)
+             size=8.5, color=_DGREY, wrap=True)
 
     if verdict:
         _rect(slide, 0, Inches(5.38), _W, Inches(0.6), fill=_NAVY)

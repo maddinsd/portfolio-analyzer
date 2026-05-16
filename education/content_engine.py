@@ -1,10 +1,11 @@
 """
-Education content engine — 5 Claude Sonnet API calls.
+Education content engine — 6 Claude Sonnet API calls.
 Call 1: Excel cell comments
 Call 2: PPT speaker notes
 Call 3: PDF sections 1-6
 Call 4: PDF sections 7-12
-Call 5: Glossary (40 terms)
+Call 5a: Glossary terms 1-20
+Call 5b: Glossary terms 21-40
 """
 from __future__ import annotations
 
@@ -46,10 +47,14 @@ _SLIDE_TITLES = [
     "Investment Verdict",
 ]
 
-_GLOSSARY_TERMS = (
+_GLOSSARY_TERMS_A = (
     "DCF, WACC, EBITDA, EPS, P/E, EV/EBITDA, FCF, Beta, Terminal Value, Margin of Safety, "
     "Accretion, Dilution, Synergies, LBO, Goodwill, Intangibles, Working Capital, CapEx, "
-    "Revenue, Gross Margin, Operating Margin, Net Margin, ROE, Debt/Equity, Net Debt, "
+    "Revenue, Gross Margin"
+)
+
+_GLOSSARY_TERMS_B = (
+    "Operating Margin, Net Margin, ROE, Debt/Equity, Net Debt, "
     "Current Ratio, Bear Case, Bull Case, Base Case, Comps, Moat, Switching Costs, ASIC, "
     "Hyperscaler, Beat/Miss, Consensus Estimate, Price Target, Initiating Coverage, "
     "Conviction, Sensitivity Analysis"
@@ -372,21 +377,51 @@ def run_content_engine(
             else:
                 print(f"  [education] Sections 7-12 validation failed after retry: {exc}", file=sys.stderr)
 
-    # ── CALL 5: Glossary ──────────────────────────────────────────────────────
-    r5 = client.messages.create(
-        model=_MODEL,
-        max_tokens=2000,
-        system=f"Define each term in 1-2 sentences. Use concrete examples from {ticker} data where available. Never truncate. Complete all 40 terms. No filler. No hedging.",
-        messages=[{"role": "user", "content": (
-            f"Full {ticker} data:\n{full_payload}\n\n"
-            f"Define all 40 of these finance terms. For each one, provide a 1-2 sentence definition "
-            f"and, where the {ticker} data provides a concrete example, use it.\n\n"
-            f"Terms: {_GLOSSARY_TERMS}\n\n"
-            f"Format each entry as: TERM: definition.\n"
-            f"Start with 'GLOSSARY' on its own line, then list all 40 terms."
-        )}],
+    # ── CALLS 5a + 5b: Glossary split into two 20-term batches ───────────────
+    _gloss_system = (
+        f"Define each term in 1-2 sentences. Use concrete examples from {ticker} data where "
+        f"available. Never truncate. Complete all terms in the list. No filler. No hedging."
     )
-    glossary_text = r5.content[0].text.strip()
+
+    def _count_terms(text: str) -> int:
+        """Count glossary term definitions, accepting TERM: or **TERM**: formats."""
+        return sum(1 for ln in text.splitlines()
+                   if re.match(r"^\**[A-Za-z][\w\s/()&,./-]{1,60}\**\s*:", ln.strip()))
+
+    def _glossary_call(terms: str, batch_label: str) -> str:
+        for attempt in range(2):
+            resp = client.messages.create(
+                model=_MODEL,
+                max_tokens=2000,
+                system=_gloss_system,
+                messages=[{"role": "user", "content": (
+                    f"Full {ticker} data:\n{full_payload}\n\n"
+                    f"Define these 20 finance terms. For each, provide a 1-2 sentence definition "
+                    f"and, where the {ticker} data provides a concrete example, use it.\n\n"
+                    f"Terms: {terms}\n\n"
+                    f"Format each entry as: TERM: definition. One term per line. No markdown headers.\n"
+                    f"Do NOT include 'GLOSSARY' header — just the 20 term definitions."
+                )}],
+            )
+            text = resp.content[0].text.strip()
+            n_defined = _count_terms(text)
+            if n_defined >= 18:
+                return text
+            if attempt == 0:
+                print(f"  [education] Glossary {batch_label} only {n_defined}/20 terms (retrying)",
+                      file=sys.stderr)
+        return text  # accept on second attempt regardless
+
+    batch_a = _glossary_call(_GLOSSARY_TERMS_A, "A")
+    batch_b = _glossary_call(_GLOSSARY_TERMS_B, "B")
+    combined = batch_a + "\n" + batch_b
+
+    # Validate combined glossary has at least 38 terms
+    n_total = _count_terms(combined)
+    if n_total < 38:
+        print(f"  [education] Glossary combined only {n_total}/40 terms after both batches",
+              file=sys.stderr)
+    glossary_text = "GLOSSARY\n" + combined
 
     pdf_content = sections_1_6_text + "\n\n" + sections_7_12_text + "\n\n" + glossary_text
 

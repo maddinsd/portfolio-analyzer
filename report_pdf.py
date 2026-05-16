@@ -33,7 +33,9 @@ _WHITE = colors.white
 _BLACK = colors.black
 
 _PW, _PH = letter          # 8.5" × 11"
-_LM = _RM = _TM = _BM = inch
+_LM = _RM = 0.75 * inch
+_TM = _BM = inch
+_CW = _PW - _LM - _RM   # usable content width = 7.0"
 
 _SANS   = 'Helvetica'       # ≈ Arial
 _SANS_B = 'Helvetica-Bold'
@@ -279,6 +281,17 @@ def _tbl(data: list[list], col_w: list[float],
         ts += extra
     return Table(data, colWidths=col_w, style=TableStyle(ts),
                  repeatRows=1, hAlign='LEFT')
+
+
+def _tbl_para(text: str, sz: float = 7.5, bold: bool = False,
+              color=None) -> Paragraph:
+    """Wrap text in a Paragraph for word-wrap inside table cells."""
+    fn = _SANS_B if bold else _SERIF
+    tc = color if color is not None else _DGREY
+    ps = ParagraphStyle("tp", fontName=fn, fontSize=sz, leading=sz * 1.35,
+                        textColor=tc, leftIndent=0, rightIndent=0,
+                        spaceBefore=0, spaceAfter=0)
+    return Paragraph(str(text), ps)
 
 
 # ── Matplotlib chart generators ───────────────────────────────────────────────
@@ -1465,14 +1478,18 @@ def _section_risks(styles: dict, stats: dict, fin_data: dict,
     risk_hdr  = ["Risk", "Prob.", "Mag.", "Mitigant"]
     risk_rows = [risk_hdr]
     for risk, prob, mag, mitigant in risk_entries[:4]:
-        risk_rows.append([risk[:300], prob, mag, mitigant[:300]])
+        risk_rows.append([
+            _tbl_para(risk),
+            prob,
+            mag,
+            _tbl_para(mitigant),
+        ])
 
-    # Risk 45%, Prob 12%, Mag 12%, Mitigant 31% of 6.5"
-    cw_r = [2.925*inch, 0.78*inch, 0.78*inch, 2.015*inch]
+    # Risk 45%, Prob 12%, Mag 12%, Mitigant 31% of _CW (7.0")
+    cw_r = [_CW*0.45, _CW*0.12, _CW*0.12, _CW*0.31]
     risk_extra = [
-        ('FONTSIZE',   (0, 1), (-1, -1), 8),
-        ('WORDWRAP',   (0, 0), (-1, -1), 'CJK'),
-        ('VALIGN',     (0, 0), (-1, -1), 'TOP'),
+        ('FONTSIZE',   (1, 1), (2, -1), 7.5),
+        ('VALIGN',     (0, 1), (-1, -1), 'TOP'),
     ]
     story.append(_tbl(risk_rows, cw_r, extra=risk_extra))
     story.append(Spacer(1, 0.14*inch))
@@ -1503,18 +1520,22 @@ def _section_risks(styles: dict, stats: dict, fin_data: dict,
     scen_rows = [
         scen_hdr,
         ["Bull", _fp(bull_tgt), _up(bull_tgt),
-         "Services ASP expansion + margin re-rating to 35x P/E; FCF CAGR accelerates to 15%"],
+         _tbl_para("Services ASP expansion + margin re-rating to 35x P/E; FCF CAGR accelerates to 15%",
+                   color=_GREEN, bold=True)],
         ["Base", _fp(base_tgt), _up(base_tgt),
-         "Consensus revenue growth; margins stable; multiple holds at current levels"],
+         _tbl_para("Consensus revenue growth; margins stable; multiple holds at current levels")],
         ["Bear", _fp(bear_tgt), _up(bear_tgt),
-         "Multiple compression to 28x (5-yr avg); revenue growth decelerates to 4%; DCF floor"],
+         _tbl_para("Multiple compression to 28x (5-yr avg); revenue growth decelerates to 4%; DCF floor",
+                   color=_RED, bold=True)],
     ]
-    cw_sc = [0.9*inch, 1.1*inch, 1.25*inch, 3.25*inch]
+    # colWidths: Scenario 13%, Price Target 16%, Upside 18%, Key Assumption 53% of _CW
+    cw_sc = [_CW*0.13, _CW*0.16, _CW*0.18, _CW*0.53]
     extra_sc = [
-        ('TEXTCOLOR', (0,1), (-1,1), _GREEN),
-        ('TEXTCOLOR', (0,3), (-1,3), _RED),
-        ('FONTNAME',  (0,1), (-1,1), _SANS_B),
-        ('FONTNAME',  (0,3), (-1,3), _SANS_B),
+        ('TEXTCOLOR', (0,1), (2,1), _GREEN),   # Bull row cols 0-2
+        ('TEXTCOLOR', (0,3), (2,3), _RED),     # Bear row cols 0-2
+        ('FONTNAME',  (0,1), (2,1), _SANS_B),  # Bull bold cols 0-2
+        ('FONTNAME',  (0,3), (2,3), _SANS_B),  # Bear bold cols 0-2
+        ('VALIGN',    (0,1), (-1,-1), 'TOP'),
     ]
     story.append(_tbl(scen_rows, cw_sc, extra=extra_sc))
 

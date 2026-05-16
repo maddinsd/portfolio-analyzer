@@ -110,7 +110,7 @@ def run_analyst_coverage(ticker: str, stats: dict, fin_data: dict) -> dict:
             consensus_rating = None
 
     # ── Price targets ─────────────────────────────────────────────────────────
-    mean_target = high_target = low_target = None
+    mean_target = high_target = low_target = target_spread_pct = None
     recent_targets: list[dict] = []
 
     if raw_targets and isinstance(raw_targets, list):
@@ -130,9 +130,17 @@ def run_analyst_coverage(ticker: str, stats: dict, fin_data: dict) -> dict:
                 "date":         (t.get("publishedDate") or "")[:10],
             })
 
-    # yfinance fallback for mean target
+    # yfinance fallback for mean/high/low targets
     if mean_target is None:
         mean_target = _safe_f(info.get("targetMeanPrice"))
+    if high_target is None:
+        high_target = _safe_f(info.get("targetHighPrice"))
+    if low_target is None:
+        low_target = _safe_f(info.get("targetLowPrice"))
+
+    # Calculate spread after all fallbacks
+    if high_target and low_target and low_target > 0:
+        target_spread_pct = round((high_target - low_target) / low_target * 100, 1)
 
     # yfinance fallback for analyst count
     if total_analysts == 0:
@@ -141,10 +149,6 @@ def run_analyst_coverage(ticker: str, stats: dict, fin_data: dict) -> dict:
     upside_pct = None
     if mean_target and current_price and current_price > 0:
         upside_pct = round((mean_target - current_price) / current_price * 100, 1)
-
-    target_spread_pct = None
-    if high_target and low_target and low_target > 0:
-        target_spread_pct = round((high_target - low_target) / low_target * 100, 1)
 
     # ── EPS / Revenue estimates ───────────────────────────────────────────────
     estimates: list[dict] = []

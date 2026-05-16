@@ -2537,38 +2537,76 @@ def _build_transcript_sheet(wb, transcript_result: dict | None, ticker: str) -> 
 
         row += 2
 
-        # ── Section 3: EPS Surprise Chart ────────────────────────────────────
+        # ── Section 3: EPS Surprise Chart (Beat = green, Miss = red) ─────────
         if len(history) >= 2:
-            # Write chart source data to columns P/Q (hidden — outside visible area)
+            # Write header + data to cols P/Q/R (hidden outside visible area)
             chart_src_row = row
-            for i, q in enumerate(history):
-                ws.cell(row=chart_src_row + i, column=16).value = q.get("date", "")
-                surp = q.get("eps_surprise")
-                ws.cell(row=chart_src_row + i, column=17).value = surp
+            ws.cell(row=chart_src_row, column=16).value = "Quarter"
+            ws.cell(row=chart_src_row, column=17).value = "Beat"
+            ws.cell(row=chart_src_row, column=18).value = "Miss"
 
-            n_pts = len(history)
+            for i, q in enumerate(history):
+                r_idx = chart_src_row + 1 + i
+                date_str = q.get("date", "")
+                try:
+                    from datetime import datetime as _dt2
+                    _d = _dt2.strptime(date_str, "%Y-%m-%d")
+                    qn  = (_d.month - 1) // 3 + 1
+                    lbl = f"Q{qn} FY{_d.year % 100:02d}"
+                except Exception:
+                    lbl = date_str
+                ws.cell(row=r_idx, column=16).value = lbl
+                surp     = q.get("eps_surprise")
+                beat_val = q.get("beat")
+                if beat_val is True:
+                    ws.cell(row=r_idx, column=17).value = surp
+                    ws.cell(row=r_idx, column=18).value = None
+                elif beat_val is False:
+                    ws.cell(row=r_idx, column=17).value = None
+                    ws.cell(row=r_idx, column=18).value = surp
+                else:
+                    ws.cell(row=r_idx, column=17).value = None
+                    ws.cell(row=r_idx, column=18).value = None
+
+            n_pts     = len(history)
+            data_end  = chart_src_row + n_pts
+
             bar_chart = BarChart()
             bar_chart.type     = "col"
-            bar_chart.title    = "EPS Surprise % — Last 8 Quarters"
+            bar_chart.grouping = "clustered"
+            bar_chart.title    = "EPS Surprise % — Beat vs Miss"
             bar_chart.y_axis.title = "Surprise %"
-            bar_chart.x_axis.title = "Earnings Date"
+            bar_chart.x_axis.title = "Quarter"
             bar_chart.width    = 18
             bar_chart.height   = 10
-            bar_chart.legend   = None
 
-            data_ref = Reference(ws, min_col=17, min_row=chart_src_row,
-                                 max_row=chart_src_row + n_pts - 1)
-            cats_ref = Reference(ws, min_col=16, min_row=chart_src_row,
-                                 max_row=chart_src_row + n_pts - 1)
-            bar_chart.add_data(data_ref)
+            # Two series: Beat + Miss, titles_from_data reads header row
+            data_ref = Reference(ws, min_col=17, max_col=18,
+                                 min_row=chart_src_row, max_row=data_end)
+            bar_chart.add_data(data_ref, titles_from_data=True)
+
+            cats_ref = Reference(ws, min_col=16,
+                                 min_row=chart_src_row + 1, max_row=data_end)
             bar_chart.set_categories(cats_ref)
+
+            try:
+                bar_chart.series[0].graphicalProperties.solidFill = "00B050"  # Beat green
+                bar_chart.series[1].graphicalProperties.solidFill = "FF0000"  # Miss red
+            except Exception:
+                pass
+
+            from openpyxl.chart.legend import Legend as _EpsLeg
+            _eps_leg          = _EpsLeg()
+            _eps_leg.position = "b"
+            _eps_leg.overlay  = False
+            bar_chart.legend  = _eps_leg
 
             ws.add_chart(bar_chart, f"A{row}")
             row += 18
 
-            # Hide source-data columns so they don't appear in the visible sheet
-            ws.column_dimensions["P"].hidden = True
-            ws.column_dimensions["Q"].hidden = True
+            # Hide source-data columns
+            for _col_ltr in ("P", "Q", "R"):
+                ws.column_dimensions[_col_ltr].hidden = True
 
     # ── Column widths ─────────────────────────────────────────────────────────
     for col, w in zip("ABCDEFGH", [16, 14, 14, 13, 11, 15, 15, 4]):

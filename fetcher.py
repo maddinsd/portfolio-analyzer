@@ -20,6 +20,7 @@ INFO_FIELDS = [
     "totalRevenue", "grossMargins", "operatingMargins", "profitMargins",
     "totalDebt", "freeCashflow", "dividendYield", "trailingEps", "forwardEps",
     "recommendationMean", "targetMeanPrice", "numberOfAnalystOpinions",
+    "returnOnEquity", "targetHighPrice", "targetLowPrice",
 ]
 
 _FMP_BASE = "https://financialmodelingprep.com/stable"
