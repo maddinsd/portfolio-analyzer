@@ -38,7 +38,7 @@ Read ONLY the file listed. Never open additional files for a single-file task.
 
 **Automation directory (`automation/`):** Standalone scheduled tools — do NOT modify main pipeline. `watchlist.json` (tickers + thresholds), `common.py` (shared utils: quotes, notifications, headlines), `morning_briefing.py` (7am daily briefing → `briefings/`), `notification_tool.py` (hourly market alerts → `.alert_cache.json`), `ic_memo.py` (on-demand IC memo → `ic_memos/`), `earnings_calendar.py` (earnings tracking + previews → `calendars/`). Phone notifications via ntfy.sh topic `sam-madding-finance-alerts`. Schedules: `morning-market-briefing` (`0 11 * * 1-5`), `market-alert-monitor` (`0 13-20 * * 1-5`), `earnings-calendar-monitor` (`30 11 * * 1-5`).
 
-**Current Excel sheets (17):** Snapshot, Price Chart, Analysis, Bull vs Bear, Income Statement, Balance Sheet, Cash Flow, News & Sentiment, DCF Model, Investment Thesis, Comps Analysis, Earnings Preview, Competitive Analysis, Analyst Coverage, Earnings & Transcripts, SEC Filings, Insider Transactions.
+**Current Excel sheets (16):** Snapshot, Price Chart, Analysis, Income Statement, Balance Sheet, Cash Flow, News & Sentiment, DCF Model, Investment Thesis, Comps Analysis, Earnings Preview, Competitive Analysis, Analyst Coverage, Earnings & Transcripts, SEC Filings, Insider Transactions.
 
 ## 3. COMMON COMMANDS
 ```bash
@@ -170,7 +170,7 @@ Non-negotiable. Never relax these.
 - **Never call Claude API from a hook** — `~/.claude/hooks/finance_intent.py` uses Haiku for classification only; never for analysis or report generation.
 - **Never use `sys.exit()` inside a module** — only `main.py` and `fetcher.py` may exit the process. All other modules return error dicts.
 - **Never overwrite `~/.claude/settings.json`** — always read then merge. New keys only; never replace the file.
-- **Never add an Excel sheet without updating `n_sheets` in `main.py`** — the sheet count print would be wrong. Current: 17 sheets max (9 base + DCF + 3 research + comp + cov + transcript + sec + insider).
+- **Never add an Excel sheet without updating `n_sheets` in `main.py`** — the sheet count print would be wrong. Current: 16 sheets max (8 base + DCF + 3 research + comp + cov + transcript + sec + insider).
 - **Never request EDGAR without the User-Agent header** — violates SEC ToS and gets IP blocked. Header: `{"User-Agent": "SamuelMadding/1.0 sdmadding@icloud.com"}`.
 - **Never add delays shorter than 150ms between EDGAR requests** — EDGAR rate limit is 10 req/sec; 150ms keeps well under it.
 - **Never pass raw 10-K text to Claude** — extract and summarize first. `sec_parser.py` is algorithmic-only; no API calls.

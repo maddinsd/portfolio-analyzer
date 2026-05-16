@@ -25,6 +25,10 @@ _LBL_ALT  = "D6E4F0"   # slightly darker label bg for alt rows
 _BORD_CLR = "C2CBD5"   # border colour
 _GRN_BG   = "E2F0D9";  _GRN_FG = "375623"
 _RED_BG   = "FFE0E0";  _RED_FG = "9C0006"
+_BULL_DARK   = "1E6630"   # dark forest green – bull case text/headers
+_BEAR_DARK   = "C00000"   # dark crimson      – bear case text/headers
+_BULL_BG_ALT = "D4EBC4"   # alternate green row fill
+_BEAR_BG_ALT = "FFCECE"   # alternate red row fill
 _SUBTITLE = "EAF0F7"   # subtitle bar
 
 _THIN   = Side(style="thin", color=_BORD_CLR)
@@ -280,8 +284,33 @@ def _build_chart_sheet(wb, ticker: str, price_history, sp500_history) -> None:
 
 # ── Analysis sheet ────────────────────────────────────────────────────────────
 
+_DRY_RUN_PLACEHOLDER = (
+    "Full analysis available on complete run — "
+    "use python3 main.py TICKER without --dry-run flag."
+)
+
+
 def _build_analysis_sheet(wb, markdown: str) -> None:
-    ws    = wb.create_sheet("Analysis")
+    ws = wb.create_sheet("Analysis")
+
+    # Never render raw JSON. Dry-run markdown contains this sentinel.
+    if "*Dry run — Claude call skipped.*" in markdown:
+        ws.merge_cells("A1:D1")
+        hdr        = ws["A1"]
+        hdr.value  = "Analysis — Dry Run"
+        hdr.font   = _f(13, bold=True, color=_WHITE)
+        hdr.fill   = _fill(_NAVY)
+        hdr.alignment = Alignment(horizontal="center", vertical="center")
+        ws.row_dimensions[1].height = 36
+        msg        = ws.cell(row=3, column=2)
+        msg.value  = _DRY_RUN_PLACEHOLDER
+        msg.font   = Font(name="Calibri", size=11, color="595959", italic=True)
+        msg.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        ws.column_dimensions["A"].width = 2
+        ws.column_dimensions["B"].width = 80
+        ws.row_dimensions[3].height = 28
+        return
+
     lines = markdown.split("\n")
 
     # Pre-scan table column widths
@@ -624,90 +653,7 @@ def _build_cashflow_sheet(wb, fin_data: dict) -> None:
     _auto_fit(ws, min_w=10)
 
 
-# ── Sheet 4: Bull vs Bear ────────────────────────────────────────────────────
-
-_BULL_DARK   = "1E6630"   # dark forest green – bull header / text
-_BEAR_DARK   = "C00000"   # dark crimson      – bear header / text
-_BULL_BG_ALT = "D4EBC4"   # slightly deeper green for alt rows
-_BEAR_BG_ALT = "FFCECE"   # slightly deeper red   for alt rows
-
-
-def _parse_section(markdown: str, header: str) -> list[str]:
-    """Return non-empty lines from a ## header block, stripped of markdown markers."""
-    m = re.search(
-        rf"^## {re.escape(header)}\s*\n([\s\S]*?)(?=\n## |\Z)",
-        markdown, re.MULTILINE,
-    )
-    if not m:
-        return []
-    lines = []
-    for line in m.group(1).split("\n"):
-        text = re.sub(r"^[-*•\d]+[.)]\s*", "", line.strip())
-        text = _clean(text)
-        if text:
-            lines.append(text)
-    return lines
-
-
-def _build_bull_bear_sheet(wb, markdown: str) -> None:
-    ws   = wb.create_sheet("Bull vs Bear")
-    bull = _parse_section(markdown, "Bull Case")
-    bear = _parse_section(markdown, "Bear Case")
-
-    if not bull and not bear:
-        return
-
-    # Title
-    ws.merge_cells("A1:B1")
-    t           = ws["A1"]
-    t.value     = "BULL CASE  ·  BEAR CASE"
-    t.font      = _f(14, bold=True, color=_WHITE)
-    t.fill      = _fill(_NAVY)
-    t.alignment = Alignment(horizontal="center", vertical="center")
-    ws.row_dimensions[1].height = 36
-
-    # Column headers
-    for col, label, bg in ((1, "BULL CASE", _BULL_DARK), (2, "BEAR CASE", _BEAR_DARK)):
-        c           = ws.cell(row=2, column=col)
-        c.value     = label
-        c.font      = _f(12, bold=True, color=_WHITE)
-        c.fill      = _fill(bg)
-        c.alignment = Alignment(horizontal="center", vertical="center")
-        c.border    = _BORDER
-    ws.row_dimensions[2].height = 28
-
-    # Content rows
-    COL_W = 58
-    for i in range(max(len(bull), len(bear))):
-        row    = i + 3
-        alt    = i % 2 == 1
-        b_text = ("•  " + bull[i]) if i < len(bull) else ""
-        r_text = ("•  " + bear[i]) if i < len(bear) else ""
-
-        b           = ws.cell(row=row, column=1)
-        b.value     = b_text
-        b.font      = _f(10, color=_BULL_DARK if b_text else "000000")
-        b.fill      = _fill(_BULL_BG_ALT if alt else _GRN_BG)
-        b.alignment = Alignment(horizontal="left", vertical="top",
-                                wrap_text=True, indent=1)
-        b.border    = _BORDER
-
-        r           = ws.cell(row=row, column=2)
-        r.value     = r_text
-        r.font      = _f(10, color=_BEAR_DARK if r_text else "000000")
-        r.fill      = _fill(_BEAR_BG_ALT if alt else _RED_BG)
-        r.alignment = Alignment(horizontal="left", vertical="top",
-                                wrap_text=True, indent=1)
-        r.border    = _BORDER
-
-        n_lines = max(1, math.ceil(max(len(b_text), len(r_text)) / COL_W))
-        ws.row_dimensions[row].height = max(26, n_lines * 16 + 6)
-
-    ws.column_dimensions["A"].width = 60
-    ws.column_dimensions["B"].width = 60
-
-
-# ── Sheet 7 (now 8): News & Sentiment ────────────────────────────────────────
+# ── Sheet 7: News & Sentiment ────────────────────────────────────────────────
 
 _SENT_ROW: dict[str, tuple[str, str]] = {
     "Positive": (_GRN_BG, _GRN_FG),
@@ -3068,7 +3014,6 @@ def build_excel(ticker: str, stats: dict, fin_data: dict,
     _build_snapshot_sheet(wb, ticker, stats)
     _build_chart_sheet(wb, ticker, price_history, sp500_history)
     _build_analysis_sheet(wb, markdown)
-    _build_bull_bear_sheet(wb, markdown)
     _build_income_sheet(wb, fin_data)
     _build_balance_sheet_sheet(wb, fin_data)
     _build_cashflow_sheet(wb, fin_data)
