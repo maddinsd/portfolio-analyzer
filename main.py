@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import os
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -8,7 +10,25 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _notify_complete(ticker: str, title: str, body: str) -> None:
+    try:
+        import requests
+        requests.post(
+            "https://ntfy.sh/sam-madding-finance-alerts",
+            data=body.encode("utf-8"),
+            headers={
+                "Title": title,
+                "Priority": "default",
+                "Tags": "chart_with_upwards_trend",
+            },
+            timeout=10,
+        )
+    except Exception:
+        pass
+
+
 def main() -> int:
+    _t0 = time.time()
     parser = argparse.ArgumentParser(prog="stock-analyzer")
     parser.add_argument("ticker", help="Stock ticker symbol (e.g. AAPL)")
     parser.add_argument("--dry-run", action="store_true", help="Skip Claude call, print payload")
@@ -240,6 +260,57 @@ def main() -> int:
                 print(f"  Companion PDF failed: {pdf_res['error']}")
             else:
                 print(f"  Companion PDF saved → {edu_path.name}")
+
+    # ── Completion notification ───────────────────────────────────────────────
+    elapsed = time.time() - _t0
+    mins, secs = divmod(int(elapsed), 60)
+    runtime_str = f"{mins}m {secs}s" if mins else f"{secs}s"
+
+    if args.dry_run:
+        _notify_complete(
+            ticker,
+            f"{ticker} Dry Run Complete",
+            "Dry run finished — no API calls made. Run without --dry-run for full analysis.",
+        )
+    elif os.path.exists(str(xl_path)):
+        price  = stats.get("current_price")
+        mktcap = data["info"].get("marketCap")
+        rating = analyst_cov_result.get("consensus_rating", "—") if not analyst_cov_result.get("error") else "—"
+        tgt    = analyst_cov_result.get("mean_target") if not analyst_cov_result.get("error") else None
+
+        price_str = f"${price:,.2f}" if isinstance(price, (int, float)) else "—"
+        tgt_str   = f"${tgt:,.0f}"   if isinstance(tgt,   (int, float)) else "—"
+        if isinstance(mktcap, (int, float)):
+            if mktcap >= 1e12:
+                cap_str = f"${mktcap / 1e12:.1f}T"
+            elif mktcap >= 1e9:
+                cap_str = f"${mktcap / 1e9:.1f}B"
+            elif mktcap >= 1e6:
+                cap_str = f"${mktcap / 1e6:.1f}M"
+            elif mktcap >= 1e3:  # stored in millions
+                cap_str = f"${mktcap / 1e3:.1f}B"
+            else:
+                cap_str = f"${mktcap:.0f}M"
+        else:
+            cap_str = "—"
+
+        files_parts = [f"Excel ({n_sheets} sheets)"]
+        if args.pdf:
+            files_parts.append("PDF")
+        if args.pitch:
+            files_parts.append("Pitch Deck")
+        if args.education:
+            files_parts.append("Education Guide")
+
+        body = (
+            f"{company_name} ({ticker})\n"
+            f"Rating: {rating} | Target: {tgt_str}\n"
+            f"Price: {price_str} | Market Cap: {cap_str}\n"
+            f"Files: {', '.join(files_parts)}\n"
+            f"Saved to Desktop/reports/{ticker}/\n"
+            f"Runtime: {runtime_str}"
+        )
+        _notify_complete(ticker, f"{ticker} Analysis Complete", body)
 
     return 0
 
