@@ -116,6 +116,12 @@ def _fix_sheet_refs(text: str) -> str:
     return text
 
 
+def _remove_empty_labels(content: str) -> str:
+    """Remove any label (Word:) followed immediately by end-of-line or another label."""
+    content = re.sub(r'\b(\w[\w\s]*?):\s*\n(?=\s*\w[\w\s]*?:|\s*$)', '', content)
+    return content
+
+
 def _parse_sections(pdf_content: str) -> tuple[list[tuple[str, str, list[str]]], list[tuple[str, str]]]:
     """
     Parse structured text into sections and glossary.
@@ -136,6 +142,7 @@ def _parse_sections(pdf_content: str) -> tuple[list[tuple[str, str, list[str]]],
         if current_title:
             body_text = " ".join(current_body).strip()
             body_text = _fix_sheet_refs(body_text)
+            body_text = _remove_empty_labels(body_text)
             sections.append((current_title, body_text, list(current_bullets)))
         current_title = ""
         current_body = []

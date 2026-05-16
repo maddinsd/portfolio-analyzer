@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import io
+import json
 import math
+import os
+import sys
 from datetime import date as _date
 from functools import partial
 
@@ -482,7 +485,7 @@ def _chart_football(stats: dict, dcf_result, comp_result, cov_result,
         ax.tick_params(axis='y', colors=c['mgrey'])
         ax.spines[['top', 'right', 'left']].set_visible(False)
         ax.spines['bottom'].set_color(c['mgrey'])
-        ax.set_title('Valuation Football Field', fontsize=8, color=c['navy'],
+        ax.set_title('Valuation Range', fontsize=8, color=c['navy'],
                      fontweight='bold', pad=4)
         ax.grid(axis='x', color='white', linewidth=0.5, zorder=0)
 
@@ -593,7 +596,7 @@ def _draw_cover_page(canvas, doc, *, ticker, company, rating, target, px,
         ("Executive Summary",  "Investment thesis, key metrics, and price target rationale"),
         ("Analyst's Note",     "Narrative context — why we are initiating coverage now"),
         ("Financial Analysis", "Revenue, margin, balance sheet, and cash flow review"),
-        ("Valuation",          "DCF model, comparable companies, and football field"),
+        ("Valuation",          "DCF model, comparable companies, and valuation range"),
         ("Research Analysis",  "Competitive moat, analyst consensus, and earnings preview"),
         ("Risk Analysis",      "Bull / base / bear scenario matrix and key risk factors"),
         ("Appendix",           "Full income statement, balance sheet, and cash flow tables"),
@@ -697,71 +700,180 @@ def _metrics_table_2col(pairs: list[tuple[str, str]]) -> Table:
     return Table(rows, colWidths=cw, style=ts, hAlign='LEFT')
 
 
-# ── Page 2: Analyst's Note (Sequoia-style narrative) ─────────────────────────
+# ── Page 2: Analyst's Note (Sequoia-style narrative via Claude Opus) ─────────
 
-def _section_analyst_note(styles: dict, stats: dict, fin_data: dict,
-                          dcf_result, research, cov_result) -> list:
-    """Single-page narrative opener: why we're initiating, in the analyst's voice."""
-    info    = stats.get("info", {})
-    company = info.get("shortName") or info.get("longName") or "the company"
-    ticker  = (info.get("symbol") or "").upper()
-    px      = _sf(stats.get("current_price"))
-    mktcap  = _sf(info.get("marketCap"))
-    rev     = _sf(fin_data.get("revenue"))
-    ebitda  = _sf(fin_data.get("ebitda"))
+def _build_note_payload(ticker: str, company: str, stats: dict, fin_data: dict,
+                        dcf_result, research, comp_result, cov_result,
+                        transcript_result, sec_result) -> dict:
+    """Build the compact data dict for the Analyst's Note API call."""
+    info = stats.get("info", {})
+    px   = _sf(stats.get("current_price"))
 
-    # Derive display values
-    px_str     = f"${px:,.2f}" if px else "—"
-    mktcap_b   = f"${mktcap/1e9:.1f}B" if mktcap else "—"
-    rev_b      = f"${rev/1000:.1f}B" if rev else "—"
-    ebitda_b   = f"${ebitda/1000:.1f}B" if ebitda and ebitda > 0 else "—"
+    a_inc  = (fin_data.get("income_statement") or {}).get("annual") or {}
+    a_cf   = (fin_data.get("cash_flow") or {}).get("annual") or {}
+    q_cf   = (fin_data.get("cash_flow") or {}).get("quarterly") or {}
 
-    # Margin
-    gm_list = ((fin_data.get("income_statement") or {}).get("annual") or {}).get("gross_margin", [])
-    gm      = _sf(gm_list[0]) if gm_list else None
-    gm_str  = f"{gm:.1f}%" if gm else "—"
+    fcf_list   = a_cf.get("free_cash_flow", [])
+    fcfm_list  = a_cf.get("fcf_margin", [])
+    q_fcf_list = q_cf.get("free_cash_flow", [])
+    rev_list   = a_inc.get("revenue", [])
+    yoy_rev    = a_inc.get("yoy_revenue", [])
+    gm_list    = a_inc.get("gross_margin", [])
 
-    # DCF
-    dcf_iv  = None
-    dcf_up  = None
+    dcf_iv = wacc = None
     if dcf_result and not dcf_result.get("error"):
-        dcf_iv  = _sf(dcf_result.get("valuation", {}).get("intrinsic"))
-        if dcf_iv and px:
-            dcf_up = (dcf_iv - px) / px * 100
+        dcf_iv = _sf(dcf_result.get("valuation", {}).get("intrinsic"))
+        wacc   = dcf_result.get("inputs", {}).get("wacc")
 
-    iv_str  = f"${dcf_iv:,.2f}" if dcf_iv else "—"
-    up_str  = (f"{'+' if dcf_up >= 0 else ''}{dcf_up:.0f}%") if dcf_up is not None else "—"
+    mean_target = bull_ratio = n_analysts = consensus_rating = None
+    if cov_result and not cov_result.get("error"):
+        mean_target      = _sf(cov_result.get("mean_target"))
+        bull_ratio       = cov_result.get("bull_ratio")
+        n_analysts       = cov_result.get("total_analysts")
+        consensus_rating = cov_result.get("consensus_rating")
 
-    # Rating / target
+    beat_streak = beat_count = total_q = 0
+    earnings_tone = ""
+    if transcript_result and not transcript_result.get("error"):
+        beat_streak   = transcript_result.get("beat_streak", 0)
+        beat_count    = transcript_result.get("beat_count", 0)
+        total_q       = transcript_result.get("total_quarters", 0)
+        earnings_tone = transcript_result.get("tone_label", "")
+
+    moat_type = moat_strength = ""
+    if comp_result and not comp_result.get("error"):
+        cd = comp_result.get("claude") or {}
+        if isinstance(cd, dict):
+            moat_type     = cd.get("moat_type", "")
+            moat_strength = cd.get("moat_strength", "")
+
+    peer_median_fpe = None
+    if comp_result and not comp_result.get("error"):
+        peer_median_fpe = _sf(_sa(comp_result, "peer_medians", "fpe"))
+
+    bull_pts = bear_pts = []
+    if research and not research.get("error"):
+        th = research.get("thesis") or {}
+        if not th.get("_placeholder"):
+            bull_pts = th.get("bull", [])
+            bear_pts = th.get("bear", [])
+
+    sec_tone = ""
+    top_risks = []
+    if sec_result and not sec_result.get("error"):
+        sec_tone  = sec_result.get("tone_signals", {}).get("tone_label", "")
+        top_risks = [r.get("title", "")[:80] for r in (sec_result.get("top_risks") or [])[:3]]
+
     rating = _fallback_rating(research, cov_result)
     target = _fallback_target(research, cov_result)
 
-    # Research thesis snippet
-    thesis_snippet = ""
-    if research and not research.get("error"):
-        thesis = research.get("investment_thesis") or {}
-        if isinstance(thesis, dict):
-            raw = thesis.get("content") or thesis.get("thesis") or ""
-        else:
-            raw = str(thesis)
-        thesis_snippet = raw[:400].strip()
+    def _nv(v, fmt): return fmt % v if v is not None else "data unavailable"
 
-    # Revenue growth
-    rev_list = ((fin_data.get("income_statement") or {}).get("annual") or {}).get("revenue", [])
-    rev_yoy  = None
-    if len(rev_list) >= 2 and rev_list[0] and rev_list[1]:
-        rev_yoy = (rev_list[0] - rev_list[1]) / abs(rev_list[1]) * 100
-    rev_yoy_str = (f"{'+' if rev_yoy >= 0 else ''}{rev_yoy:.0f}% YoY") if rev_yoy is not None else ""
+    return {
+        "ticker":            ticker,
+        "company":           company,
+        "current_price":     f"${px:,.2f}" if px else "data unavailable",
+        "market_cap":        _flarge(info.get("marketCap")),
+        "dcf_intrinsic":     f"${dcf_iv:,.2f}" if dcf_iv else "data unavailable",
+        "dcf_wacc":          f"{wacc:.2f}%" if wacc else "data unavailable",
+        "dcf_vs_price_pct":  (f"{(dcf_iv - px)/px*100:+.1f}%" if (dcf_iv and px) else "data unavailable"),
+        "analyst_target":    f"${mean_target:,.2f}" if mean_target else "data unavailable",
+        "analyst_upside":    (f"{(mean_target - px)/px*100:+.1f}%" if (mean_target and px) else "data unavailable"),
+        "analyst_count":     n_analysts if n_analysts else "data unavailable",
+        "bull_ratio":        f"{bull_ratio:.1f}%" if bull_ratio is not None else "data unavailable",
+        "consensus_rating":  consensus_rating or "data unavailable",
+        "beat_streak":       beat_streak,
+        "beat_count":        beat_count,
+        "total_quarters":    total_q,
+        "earnings_tone":     earnings_tone,
+        "fcf_annual_latest": _fm(fcf_list[0]) if fcf_list else "data unavailable",
+        "fcf_margin":        f"{fcfm_list[0]:.1f}%" if fcfm_list and fcfm_list[0] else "data unavailable",
+        "revenue_annual":    _fm(rev_list[0]) if rev_list else "data unavailable",
+        "revenue_growth_yoy":f"{yoy_rev[0]:+.1f}%" if yoy_rev and yoy_rev[0] else "data unavailable",
+        "gross_margin":      f"{gm_list[0]:.1f}%" if gm_list and gm_list[0] else "data unavailable",
+        "forward_pe":        f"{_sf(info.get('forwardPE'), 1):.1f}x" if _sf(info.get("forwardPE")) else "data unavailable",
+        "peer_median_fpe":   f"{peer_median_fpe:.1f}x" if peer_median_fpe else "data unavailable",
+        "moat_type":         moat_type or "data unavailable",
+        "moat_strength":     moat_strength or "data unavailable",
+        "rating":            rating,
+        "price_target":      target,
+        "bull_case_points":  bull_pts[:3],
+        "bear_case_points":  bear_pts[:3],
+        "sec_mda_tone":      sec_tone,
+        "sec_top_risks":     top_risks,
+    }
+
+
+_NOTE_SYSTEM = """\
+You are Samuel Madding, a senior equity research analyst at the University of Cincinnati \
+Lindner College of Business. Write with the directness of Sequoia Fund investor letters: \
+specific numbers, honest tensions, no hedging, no AI-sounding phrases.
+
+Rules:
+- Exactly 4 paragraphs. No headers. No bullets. No em-dashes (—) as sentence connectors. Use periods.
+- Every factual claim must reference a specific number from the data payload. No estimates.
+- If a value is marked "data unavailable", write that explicitly — never invent a number.
+- Forbidden phrases: "it is worth noting", "importantly", "it is clear that", "in conclusion", \
+"it goes without saying", "needless to say", "at the end of the day", "think of it like", \
+"imagine you are", "it is clear", "strong performance", "robust growth"
+- No em-dashes (—) as connectors. End sentences with periods.
+- P1: The central tension. State DCF intrinsic, current price, analyst consensus target. Explain \
+in 4-5 sentences why all three coexist logically. Reference actual moat_type and moat_strength.
+- P2: Why the franchise deserves its market premium over DCF. Every sentence must contain a \
+specific number from the payload: FCF margin, beat streak, revenue growth, forward P/E vs peer median.
+- P3: What must be true for the bull case to play out. Derive from bull_case_points. Specific. \
+Falsifiable. Name at least one thing that would make the thesis wrong.
+- P4: Honest risks from bear_case_points. Short. Direct. End with this exact line:
+"Initiating coverage: [RATING], $[price_target] price target, 12-month horizon. \
+— Samuel Madding, University of Cincinnati"
+"""
+
+
+def _run_analyst_note_api(payload: dict) -> str | None:
+    """Call Claude Opus to generate the Analyst's Note. Returns prose or None on failure."""
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        return None
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model="claude-opus-4-7",
+            system=_NOTE_SYSTEM,
+            messages=[{"role": "user", "content":
+                       f"Data for the Analyst's Note:\n\n{json.dumps(payload, indent=2)}\n\n"
+                       f"Write the 4-paragraph Analyst's Note now. No headers. No bullets."}],
+        )
+        return msg.content[0].text.strip()
+    except Exception as exc:
+        print(f"  [PDF] Analyst's Note API call failed: {exc}", file=sys.stderr)
+        return None
+
+
+def _section_analyst_note(styles: dict, stats: dict, fin_data: dict,
+                          dcf_result, research, cov_result,
+                          transcript_result=None, sec_result=None,
+                          comp_result=None) -> list:
+    """Single-page narrative opener written by Claude Opus from actual data payload."""
+    info    = stats.get("info", {})
+    company = info.get("shortName") or info.get("longName") or "the company"
+    ticker  = (info.get("symbol") or stats.get("ticker") or "").upper()
+    px      = _sf(stats.get("current_price"))
+    rating  = _fallback_rating(research, cov_result)
+    target  = _fallback_target(research, cov_result)
+
+    # Build payload and attempt Opus API call
+    note_payload = _build_note_payload(
+        ticker, company, stats, fin_data,
+        dcf_result, research, comp_result, cov_result,
+        transcript_result, sec_result,
+    )
+    api_note = _run_analyst_note_api(note_payload)
 
     note_style = ParagraphStyle(
         "analyst_note_body",
         fontName=_SERIF, fontSize=10.5, textColor=_DGREY,
         leading=16, spaceAfter=14, firstLineIndent=0,
-    )
-    note_italic = ParagraphStyle(
-        "analyst_note_italic",
-        fontName="Times-Italic", fontSize=10.5, textColor=_DGREY,
-        leading=16, spaceAfter=14,
     )
     sig_style = ParagraphStyle(
         "analyst_sig",
@@ -769,55 +881,75 @@ def _section_analyst_note(styles: dict, stats: dict, fin_data: dict,
         leading=13, spaceAfter=4, alignment=2,
     )
 
-    p1 = (
-        f"We are initiating coverage of {company} ({ticker}) with a {rating} rating "
-        f"and a 12-month price target of {target}. At the current price of {px_str}, "
-        f"the stock trades at a discount to our intrinsic value estimate of {iv_str} "
-        f"({up_str} upside), and we believe the market underappreciates the durability "
-        f"of {company}'s earnings power and the compounding nature of its competitive moat."
-    )
-
-    if thesis_snippet:
-        p2 = thesis_snippet
-        if not p2.endswith("."):
-            p2 += "."
-    else:
-        p2 = (
-            f"{company} has built a formidable position in its markets. "
-            f"With {rev_b} in revenue{(' growing ' + rev_yoy_str) if rev_yoy_str else ''} "
-            f"and gross margins of {gm_str}, the business generates the kind of returns "
-            f"on capital that compound value over time. "
-            f"We see limited near-term threats to the core franchise."
-        )
-
-    p3 = (
-        f"Our {up_str} upside estimate rests on three convictions: the business has "
-        f"pricing power that the income statement does not yet fully reflect; "
-        f"management has demonstrated capital allocation discipline across cycles; "
-        f"and the addressable market continues to expand faster than consensus expects. "
-        f"A DCF at our base assumptions yields {iv_str}, and we believe peak-cycle "
-        f"concerns are already more than priced in."
-    )
-
-    p4 = (
-        f"Risks to our view are real — execution on integration, macro sensitivity, "
-        f"and competitive response from well-capitalized peers. We size these risks "
-        f"in our bear case ({target} bear) and believe the risk/reward favors initiation "
-        f"at current levels for investors with an 18-month horizon."
-    )
-
-    sig = f"We initiate coverage with a {rating} rating and {target} price target.\n— {_ANALYST}, University of Cincinnati"
-
     flowables: list = []
     flowables += _section_header("Analyst's Note", styles)
     flowables.append(Spacer(1, 0.15*inch))
-    flowables.append(Paragraph(p1, note_style))
-    flowables.append(Paragraph(p2, note_italic))
-    flowables.append(Paragraph(p3, note_style))
-    flowables.append(Paragraph(p4, note_style))
+
+    if api_note:
+        # Split Opus-generated note into paragraphs and render each
+        paragraphs = [p.strip() for p in api_note.split("\n\n") if p.strip()]
+        for para in paragraphs:
+            # Replace any stray em-dashes used as connectors (keep signature dash)
+            clean = para.replace(" — ", ". ").replace(" — \n", ". ")
+            # Restore the signature line dash
+            sig_marker = "Initiating coverage:"
+            if sig_marker in clean:
+                idx = clean.index(sig_marker)
+                prefix = clean[:idx].rstrip(". ")
+                suffix = clean[idx:]
+                clean = (prefix + ". " + suffix) if prefix else suffix
+                clean = clean.replace(
+                    f"— {_ANALYST}", f"\n— {_ANALYST}"
+                )
+            flowables.append(Paragraph(clean, note_style))
+    else:
+        # Fallback: template-based note from extracted variables
+        px_str  = f"${px:,.2f}" if px else "—"
+        dcf_iv  = _sf(note_payload.get("dcf_intrinsic", "").lstrip("$").replace(",", "")) \
+                  if note_payload.get("dcf_intrinsic") != "data unavailable" else None
+        iv_str  = note_payload.get("dcf_intrinsic", "—")
+        up_str  = note_payload.get("dcf_vs_price_pct", "—")
+        mt_str  = note_payload.get("analyst_target", "—")
+        rev_gr  = note_payload.get("revenue_growth_yoy", "—")
+        fcfm    = note_payload.get("fcf_margin", "—")
+        streak  = note_payload.get("beat_streak", 0)
+        moat    = note_payload.get("moat_type", "—")
+        fpe     = note_payload.get("forward_pe", "—")
+        pm_fpe  = note_payload.get("peer_median_fpe", "—")
+
+        p1 = (
+            f"We are initiating coverage of {company} ({ticker}) with a {rating} rating "
+            f"and a 12-month price target of {target}. The DCF model produces an intrinsic "
+            f"value of {iv_str} at {note_payload.get('dcf_wacc', '—')} WACC. "
+            f"The stock trades at {px_str}, and the Street consensus target is {mt_str}. "
+            f"All three numbers are internally consistent. The DCF reflects the model inputs. "
+            f"The market prices the {moat} moat and a track record of execution."
+        )
+        p2 = (
+            f"The franchise earns its premium. {company} has beaten EPS estimates in "
+            f"{streak} consecutive quarters. Free cash flow margin is {fcfm}. "
+            f"Revenue grew {rev_gr} year over year. "
+            f"At {fpe} forward P/E against a peer median of {pm_fpe}, "
+            f"the premium is real but not irrational given those economics."
+        )
+        p3 = (
+            f"The bull case requires sustained execution. Management must hold FCF margins "
+            f"while investing in next-generation capacity. Any guidance cut would reset "
+            f"the multiple sharply. The beat streak ends, and so does the re-rating story."
+        )
+        p4 = (
+            f"The risks are specific: multiple compression, macro-driven demand weakness, "
+            f"and competitive displacement at the hyperscaler level. "
+            f"Initiating coverage: {rating}, {target} price target, 12-month horizon. "
+            f"— {_ANALYST}, University of Cincinnati"
+        )
+        for para in [p1, p2, p3, p4]:
+            flowables.append(Paragraph(para, note_style))
+
     flowables.append(Spacer(1, 0.25*inch))
     flowables.append(_hr())
     flowables.append(Spacer(1, 0.08*inch))
+    sig = f"Initiating coverage: {rating}, {target} price target, 12-month horizon. — {_ANALYST}, University of Cincinnati"
     flowables.append(Paragraph(sig, sig_style))
     flowables.append(PageBreak())
     return flowables
@@ -1116,7 +1248,7 @@ def _section_valuation(styles: dict, stats: dict, fin_data: dict,
     # ── Football field chart ──────────────────────────────────────────────────
     ff_chart = _chart_football(stats, dcf_result, comp_result, cov_result,
                                width=6.0, height=2.6)
-    ff_block = [Paragraph("Valuation Football Field", styles["h2"])]
+    ff_block = [Paragraph("Valuation Range", styles["h2"])]
     if ff_chart:
         ff_block += [
             ff_chart,
@@ -1126,7 +1258,7 @@ def _section_valuation(styles: dict, stats: dict, fin_data: dict,
         ]
     else:
         ff_block.append(Paragraph(
-            "Insufficient valuation data to render football field.", styles["body_sm"]))
+            "Insufficient valuation data to render valuation range chart.", styles["body_sm"]))
     story.append(KeepTogether(ff_block))
 
     return story
@@ -1353,13 +1485,16 @@ def _section_risks(styles: dict, stats: dict, fin_data: dict,
     if mt and px:
         bull_tgt  = round(mt * 1.15, 2)
         base_tgt  = mt
-        bear_tgt  = max(round(px * 0.75, 2), iv or round(px * 0.65, 2))
+        bear_tgt  = round(px * 0.75, 2)
     elif iv and px:
-        base_tgt  = mt or round((px + iv)/2, 2)
+        base_tgt  = mt or round((px + iv) / 2, 2)
         bull_tgt  = round(px * 1.10, 2)
-        bear_tgt  = iv
+        bear_tgt  = iv if (iv and iv < px) else round(px * 0.75, 2)
     else:
         bull_tgt = base_tgt = bear_tgt = None
+    # Safety net: bear must always be below current price
+    if bear_tgt is not None and px is not None and bear_tgt >= px:
+        bear_tgt = round(px * 0.75, 2)
 
     def _up(t): return _fpct(((t - px) / px * 100) if (t and px) else None, plus=True)
 
@@ -1533,6 +1668,8 @@ def run_pdf(ticker: str, stats: dict, fin_data: dict,
             research:   dict | None = None,
             comp_result: dict | None = None,
             cov_result:  dict | None = None,
+            transcript_result: dict | None = None,
+            sec_result: dict | None = None,
             out_path: str = "") -> dict:
     """Build a UC Lindner equity research PDF. Never raises."""
     try:
@@ -1573,7 +1710,9 @@ def run_pdf(ticker: str, stats: dict, fin_data: dict,
 
         # Page 2: Analyst's Note
         story += _section_analyst_note(
-            styles, stats, fin_data, dcf_result, research, cov_result)
+            styles, stats, fin_data, dcf_result, research, cov_result,
+            transcript_result=transcript_result, sec_result=sec_result,
+            comp_result=comp_result)
 
         # Pages 3–11: content
         story += _section_exec_summary(

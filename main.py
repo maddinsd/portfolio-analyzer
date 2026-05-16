@@ -183,6 +183,7 @@ def main() -> int:
             research=research,
             comp_result=comp_result,
             cov_result=analyst_cov_result,
+            transcript_result=transcript_result,
             out_path=str(pitch_path),
         )
         if pitch_result.get("error"):
@@ -198,6 +199,8 @@ def main() -> int:
             research=research,
             comp_result=comp_result,
             cov_result=analyst_cov_result,
+            transcript_result=transcript_result,
+            sec_result=sec_result,
             out_path=str(pdf_path),
         )
         if pdf_result.get("error"):
@@ -215,7 +218,13 @@ def main() -> int:
 
         audience = args.audience
         print(f"\nRunning education layer ({audience} audience) — 3 API calls...")
-        edu_content = run_content_engine(ticker, stats, fin_data, dcf_result, audience)
+        edu_content = run_content_engine(
+            ticker, stats, fin_data, dcf_result, audience,
+            comp_result=comp_result,
+            cov_result=analyst_cov_result,
+            transcript_result=transcript_result,
+            sec_result=sec_result,
+        )
         if edu_content.get("error"):
             print(f"  Education content failed: {edu_content['error']}")
         else:

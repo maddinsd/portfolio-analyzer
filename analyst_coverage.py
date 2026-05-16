@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import os
+import sys
 
 import requests
 
@@ -16,7 +17,7 @@ def _fmp_get(endpoint: str, params: dict) -> list | dict | None:
         r = requests.get(
             f"{_FMP_BASE}/{endpoint}",
             params={**params, "apikey": key},
-            timeout=10,
+            timeout=30,
         )
         r.raise_for_status()
         return r.json()
@@ -48,6 +49,21 @@ def _get_sell(rec: dict) -> int:
             + int(rec.get("analystRatingsSell") or rec.get("analystRatingssell") or 0))
 
 
+def _estimate_distribution(recommendation_mean: float | None, n_analysts: int) -> tuple[int, int, int]:
+    """Derive buy/hold/sell counts from recommendationMean when FMP returns no distribution."""
+    rm = recommendation_mean or 2.5
+    n  = n_analysts or 0
+    if rm < 1.5:
+        buy_pct, hold_pct, sell_pct = 0.85, 0.15, 0.00
+    elif rm < 2.0:
+        buy_pct, hold_pct, sell_pct = 0.70, 0.25, 0.05
+    elif rm < 2.5:
+        buy_pct, hold_pct, sell_pct = 0.55, 0.35, 0.10
+    else:
+        buy_pct, hold_pct, sell_pct = 0.20, 0.60, 0.20
+    return int(n * buy_pct), int(n * hold_pct), int(n * sell_pct)
+
+
 def run_analyst_coverage(ticker: str, stats: dict, fin_data: dict) -> dict:
     """Fetch analyst coverage from FMP; fall back to yfinance on failure. Never raises."""
     raw_recs    = _fmp_get("analyst-stock-recommendations", {"symbol": ticker, "limit": 6})
@@ -64,9 +80,25 @@ def run_analyst_coverage(ticker: str, stats: dict, fin_data: dict) -> dict:
         buy_count  = _get_buy(rec)
         hold_count = _get_hold(rec)
         sell_count = _get_sell(rec)
+        if buy_count == 0 and hold_count == 0 and sell_count == 0:
+            print(f"  [analyst_coverage] FMP rec fields all zero for {ticker}. "
+                  f"Raw keys: {list(rec.keys())[:12]}", file=sys.stderr)
+    elif raw_recs is None:
+        print(f"  [analyst_coverage] FMP analyst-stock-recommendations returned None for {ticker}", file=sys.stderr)
 
     total_analysts = buy_count + hold_count + sell_count
     bull_ratio     = round(buy_count / total_analysts * 100, 1) if total_analysts > 0 else None
+
+    # FMP distribution unavailable — derive from yfinance recommendationMean
+    if total_analysts == 0:
+        n_yf = info.get("numberOfAnalystOpinions") or 0
+        rec_mean = info.get("recommendationMean")
+        if n_yf > 0:
+            buy_count, hold_count, sell_count = _estimate_distribution(rec_mean, n_yf)
+            total_analysts = buy_count + hold_count + sell_count
+            bull_ratio = round(buy_count / total_analysts * 100, 1) if total_analysts > 0 else None
+            print(f"  [analyst_coverage] Using estimated distribution from recommendationMean={rec_mean:.2f}: "
+                  f"buy={buy_count} hold={hold_count} sell={sell_count}", file=sys.stderr)
 
     if bull_ratio is not None:
         consensus_rating = "Buy" if bull_ratio >= 60 else ("Sell" if bull_ratio <= 30 else "Hold")

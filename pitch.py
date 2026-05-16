@@ -5,6 +5,7 @@ from datetime import date as _date
 from pathlib import Path
 
 from pptx import Presentation
+from utils import get_conviction
 from pptx.chart.data import ChartData
 from pptx.dml.color import RGBColor
 from pptx.enum.chart import XL_CHART_TYPE
@@ -878,7 +879,7 @@ def _slide_comps(prs, stats: dict, research: dict | None, comp_result: dict | No
 def _slide_football(prs, stats: dict, dcf_result: dict | None,
                     comp_result: dict | None, cov_result: dict | None):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    _add_header(slide, "Valuation Summary — Football Field", 8)
+    _add_header(slide, "Valuation Range", 8)
 
     fd = _football_data(stats, dcf_result, comp_result, cov_result)
     bars      = fd["bars"]
@@ -1182,7 +1183,8 @@ def _slide_risks(prs, research: dict | None,
 
 
 
-def _slide_final(prs, stats: dict, research: dict | None, cov_result: dict | None):
+def _slide_final(prs, stats: dict, research: dict | None, cov_result: dict | None,
+                 transcript_result: dict | None = None):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     _rect(slide, 0, 0, _W, _H, fill=_NAVY)
 
@@ -1213,8 +1215,11 @@ def _slide_final(prs, stats: dict, research: dict | None, cov_result: dict | Non
         _txt(slide, verdict, Inches(1.5), Inches(3.0), Inches(10.3), Inches(0.7),
              size=14, italic=True, color=_LGREY, align=PP_ALIGN.CENTER, wrap=True)
 
-    # Conviction
-    conviction = "High" if rating == "BUY" else ("Low" if rating == "SELL" else "Medium")
+    # Conviction — use shared utility
+    bull_ratio_val = cov_result.get("bull_ratio") if (cov_result and not cov_result.get("error")) else None
+    beat_streak_val = (transcript_result.get("beat_streak", 0)
+                       if (transcript_result and not transcript_result.get("error")) else 0)
+    conviction = get_conviction(bull_ratio_val, beat_streak_val)
     conv_color = _GREEN if conviction == "High" else (_RED if conviction == "Low" else _GOLD)
     _txt(slide, f"Conviction: {conviction.upper()}",
          Inches(1.0), Inches(4.0), Inches(11.3), Inches(0.4),
@@ -1241,6 +1246,7 @@ def run_pitch(ticker: str, stats: dict, fin_data: dict,
               research: dict | None = None,
               comp_result: dict | None = None,
               cov_result: dict | None = None,
+              transcript_result: dict | None = None,
               out_path: str = "") -> dict:
     """Build a 12-slide UC Lindner pitch deck. Never raises."""
     try:
@@ -1259,7 +1265,7 @@ def run_pitch(ticker: str, stats: dict, fin_data: dict,
         _slide_competitive(prs, stats, comp_result)
         _slide_coverage(prs, cov_result)
         _slide_risks(prs, research, stats, fin_data, dcf_result, comp_result)
-        _slide_final(prs, stats, research, cov_result)
+        _slide_final(prs, stats, research, cov_result, transcript_result=transcript_result)
 
         prs.save(out_path)
         return {"error": None, "path": out_path, "n_slides": 12}

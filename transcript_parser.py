@@ -185,12 +185,12 @@ def _run(ticker: str, stats: dict, fin_data: dict) -> dict:
                 "rev_growth":   None,
             })
 
-            if len(beat_miss) >= 8:
+            if len(beat_miss) >= 12:
                 break
 
-    # ── 2. Revenue actuals from FMP income-statement (quarterly, limit≤5) ─────
+    # ── 2. Revenue actuals from FMP income-statement (quarterly, limit≤12) ────
     fmp_records = _fmp_get("income-statement",
-                           {"symbol": ticker, "period": "quarter", "limit": 8})
+                           {"symbol": ticker, "period": "quarter", "limit": 12})
 
     rev_by_date: dict[str, tuple] = {}
     if fmp_records and isinstance(fmp_records, list):
