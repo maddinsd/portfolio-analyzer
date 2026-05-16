@@ -428,11 +428,15 @@ def _chart_football(stats: dict, dcf_result, comp_result, cov_result,
         comp_lo = comp_hi = None
         eps = _sf(info.get("forwardEps")) or _sf(info.get("trailingEps"))
         if eps and eps > 0 and comp_result and not comp_result.get("error"):
-            fpes = [_sf(p.get("fpe")) for p in comp_result.get("peers", [])
-                    if _sf(p.get("fpe")) and _sf(p.get("fpe")) > 0]
+            fpes = sorted(_sf(p.get("fpe")) for p in comp_result.get("peers", [])
+                          if _sf(p.get("fpe")) and _sf(p.get("fpe")) > 0)
             if fpes:
-                comp_lo = round(min(fpes) * eps, 2)
-                comp_hi = round(max(fpes) * eps, 2)
+                def _q(p, s=fpes):
+                    k = (len(s) - 1) * p
+                    lo, hi = int(k), min(int(k) + 1, len(s) - 1)
+                    return s[lo] + (s[hi] - s[lo]) * (k - lo)
+                comp_lo = round(_q(0.25) * eps, 2)
+                comp_hi = round(_q(0.75) * eps, 2)
 
         bars = [
             ("DCF",             dcf_lo,   dcf_hi,   c['navy']),
@@ -978,7 +982,13 @@ def _section_research(styles: dict, stats: dict, fin_data: dict,
 
     moat_text = ""
     if ok_comp:
-        moat_text = comp_result.get("claude") or ""
+        claude_data = comp_result.get("claude")
+        if isinstance(claude_data, str):
+            moat_text = claude_data
+        elif isinstance(claude_data, dict):
+            mt = claude_data.get("moat_type", "")
+            ms = claude_data.get("moat_strength", "")
+            moat_text = f"Moat: {mt}. {ms}".strip() if mt else ""
 
     if not moat_text and ok_comp:
         rks  = comp_result.get("rankings", {})

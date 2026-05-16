@@ -329,11 +329,15 @@ def _football_data(stats: dict, dcf_result: dict | None,
     comp_low = comp_high = None
     eps = _sf(info.get("forwardEps")) or _sf(info.get("trailingEps"))
     if eps and eps > 0 and comp_result and not comp_result.get("error"):
-        peer_fpes = [_sf(p.get("fpe")) for p in comp_result.get("peers", [])
-                     if _sf(p.get("fpe")) and _sf(p.get("fpe")) > 0]
+        peer_fpes = sorted(_sf(p.get("fpe")) for p in comp_result.get("peers", [])
+                           if _sf(p.get("fpe")) and _sf(p.get("fpe")) > 0)
         if peer_fpes:
-            comp_low  = round(min(peer_fpes) * eps, 2)
-            comp_high = round(max(peer_fpes) * eps, 2)
+            def _q(p, s=peer_fpes):
+                k = (len(s) - 1) * p
+                lo, hi = int(k), min(int(k) + 1, len(s) - 1)
+                return s[lo] + (s[hi] - s[lo]) * (k - lo)
+            comp_low  = round(_q(0.25) * eps, 2)
+            comp_high = round(_q(0.75) * eps, 2)
 
     bars = [
         ("DCF",            dcf_low,   dcf_high,   _NAVY),
