@@ -839,6 +839,7 @@ def _run_analyst_note_api(payload: dict) -> str | None:
         client = anthropic.Anthropic(api_key=api_key)
         msg = client.messages.create(
             model="claude-opus-4-7",
+            max_tokens=1500,
             system=_NOTE_SYSTEM,
             messages=[{"role": "user", "content":
                        f"Data for the Analyst's Note:\n\n{json.dumps(payload, indent=2)}\n\n"

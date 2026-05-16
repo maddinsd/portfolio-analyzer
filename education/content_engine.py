@@ -224,31 +224,33 @@ def run_content_engine(
     )
     edu_system = _education_system_prompt(name, ticker, aud_label, aud_tone)
 
+    _JSON_SYSTEM = (
+        f"You are a finance educator writing for a {aud_label}. "
+        f"Return ONLY valid JSON — no prose, no markdown fences, no explanation. "
+        f"Use specific numbers from the data provided in every comment or note."
+    )
+
     # ── CALL 1: Excel cell comments ───────────────────────────────────────────
     terms_str = ", ".join(_EXCEL_TERMS)
     r1 = client.messages.create(
         model=_MODEL,
         max_tokens=_MAX_TOKENS,
-        system=edu_system,
+        system=_JSON_SYSTEM,
         messages=[{"role": "user", "content": (
-            f"Write Excel cell comments for a {name} ({ticker}) financial analysis workbook.\n\n"
-            f"Full data:\n{full_payload}\n\n"
+            f"Full {name} ({ticker}) data:\n{full_payload}\n\n"
             f"Write a JSON object where each key is a metric name and the value is a 2-sentence "
-            f"comment using {ticker}'s actual numbers from the data above.\n\n"
+            f"comment written for a {aud_label}. Every comment must use a specific number from the "
+            f"data above — not generic definitions.\n\n"
             f"Metrics: {terms_str}\n\n"
-            f"Return ONLY valid JSON. No markdown, no explanation.\n"
-            f'Format: {{"{_EXCEL_TERMS[0]}": "comment using real numbers", ...}}'
+            f'Return only the JSON object. Format: {{"{_EXCEL_TERMS[0]}": "comment text", ...}}'
         )}],
     )
     try:
         text1 = r1.content[0].text.strip()
-        if text1.startswith("```"):
-            text1 = text1.split("```")[1]
-            if text1.startswith("json"):
-                text1 = text1[4:]
-        start = text1.find("{")
-        end   = text1.rfind("}") + 1
-        excel_comments = json.loads(text1[start:end]) if start >= 0 else {}
+        text1 = re.sub(r'^```(?:json)?\s*', '', text1)
+        text1 = re.sub(r'\s*```$', '', text1).strip()
+        s, e = text1.find("{"), text1.rfind("}")
+        excel_comments = json.loads(text1[s:e+1]) if s >= 0 and e > s else {}
     except Exception as exc:
         print(f"  [education] Excel comments parse error: {exc}", file=sys.stderr)
         excel_comments = {}
@@ -258,26 +260,23 @@ def run_content_engine(
     r2 = client.messages.create(
         model=_MODEL,
         max_tokens=_MAX_TOKENS,
-        system=edu_system,
+        system=_JSON_SYSTEM,
         messages=[{"role": "user", "content": (
-            f"Write speaker notes for a {name} ({ticker}) pitch deck.\n\n"
-            f"Full data:\n{full_payload}\n\n"
-            f"Write speaker notes for each of these 12 slides. Each note must reference "
-            f"specific numbers from the data above. Minimum 100 words per slide.\n\n"
+            f"Full {name} ({ticker}) data:\n{full_payload}\n\n"
+            f"Write speaker notes for each of these 12 slides. "
+            f"Each note must reference specific numbers from the data. "
+            f"Minimum 80 words per slide. Written for a {aud_label}.\n\n"
             f"Slides:\n{slides_str}\n\n"
-            f"Return ONLY a JSON array with 12 objects. No markdown, no explanation.\n"
-            f'Format: [{{"slide": 1, "title": "Cover / Title", "notes": "speaker notes here"}}, ...]'
+            f"Return only a JSON array with exactly 12 objects.\n"
+            f'Format: [{{"slide": 1, "title": "Cover / Title", "notes": "..."}}]'
         )}],
     )
     try:
         text2 = r2.content[0].text.strip()
-        if text2.startswith("```"):
-            text2 = text2.split("```")[1]
-            if text2.startswith("json"):
-                text2 = text2[4:]
-        start = text2.find("[")
-        end   = text2.rfind("]") + 1
-        ppt_notes = json.loads(text2[start:end]) if start >= 0 else []
+        text2 = re.sub(r'^```(?:json)?\s*', '', text2)
+        text2 = re.sub(r'\s*```$', '', text2).strip()
+        s, e = text2.find("["), text2.rfind("]")
+        ppt_notes = json.loads(text2[s:e+1]) if s >= 0 and e > s else []
     except Exception as exc:
         print(f"  [education] PPT notes parse error: {exc}", file=sys.stderr)
         ppt_notes = []
