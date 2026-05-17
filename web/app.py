@@ -18,6 +18,8 @@ from flask import (Flask, Response, jsonify, make_response, redirect,
                    render_template, request, send_file, send_from_directory,
                    stream_with_context)
 from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 # ── Paths & environment ───────────────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -36,7 +38,35 @@ APP_PASSWORD = os.environ.get("APP_PASSWORD", "lindner2026")
 app = Flask(__name__)
 CORS(app)
 
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=[],
+    storage_uri="memory://",
+)
+
 jobs: dict[str, queue.Queue] = {}
+
+# ── Daily analysis counter ────────────────────────────────────────────────────
+_counter_lock = threading.Lock()
+_DAILY_LIMIT  = 20
+_COUNTER_FILE = PROJECT_ROOT / ".daily_counter.json"
+
+def _check_daily_limit() -> bool:
+    """Increment today's analysis count. Returns False if limit exceeded."""
+    today = date.today().isoformat()
+    with _counter_lock:
+        try:
+            data = json.loads(_COUNTER_FILE.read_text()) if _COUNTER_FILE.exists() else {}
+        except Exception:
+            data = {}
+        if data.get("date") != today:
+            data = {"date": today, "count": 0}
+        if data["count"] >= _DAILY_LIMIT:
+            return False
+        data["count"] += 1
+        _COUNTER_FILE.write_text(json.dumps(data))
+        return True
 
 # ── Auth ─────────────────────────────────────────────────────────────────────
 def require_auth(f):
@@ -70,7 +100,7 @@ def login_post():
     pw = request.form.get("password", "")
     if pw == APP_PASSWORD:
         resp = make_response(redirect("/"))
-        resp.set_cookie("auth", APP_PASSWORD, httponly=True, samesite="Lax")
+        resp.set_cookie("auth", APP_PASSWORD, httponly=True, samesite="Lax", max_age=28800)
         return resp
     return render_template("login.html", error="Invalid password"), 401
 
@@ -258,6 +288,7 @@ def _analysis_thread(job_id: str, ticker: str, flags: list[str], audience: str):
 
 @app.route("/api/analyze", methods=["POST"])
 @require_auth
+@limiter.limit("10 per hour")
 def api_analyze():
     body     = request.get_json() or {}
     ticker   = body.get("ticker", "").upper().strip()
@@ -265,6 +296,8 @@ def api_analyze():
     audience = body.get("audience", "student")
     if not ticker or not ticker.replace(".", "").isalpha() or len(ticker) > 6:
         return jsonify({"error": "Invalid ticker"}), 400
+    if not _check_daily_limit():
+        return jsonify({"error": "Daily analysis limit reached. Try again tomorrow."}), 429
     job_id = str(uuid.uuid4())[:8]
     jobs[job_id] = queue.Queue()
     threading.Thread(target=_analysis_thread, args=(job_id, ticker, flags, audience), daemon=True).start()
