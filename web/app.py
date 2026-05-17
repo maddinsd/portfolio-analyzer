@@ -51,6 +51,50 @@ CORS(app)
 
 jobs: dict[str, dict] = {}
 
+# ── JSON serialisation helper (handles numpy/pandas types) ───────────────────
+def _make_json_safe(obj):
+    if obj is None or isinstance(obj, (bool, str)):
+        return obj
+    if isinstance(obj, dict):
+        return {k: _make_json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_make_json_safe(v) for v in obj]
+    if isinstance(obj, float):
+        if obj != obj or obj == float('inf') or obj == float('-inf'):
+            return None
+        return obj
+    if isinstance(obj, int):
+        return obj
+    if hasattr(obj, 'item'):      # numpy scalar
+        return _make_json_safe(obj.item())
+    if hasattr(obj, 'tolist'):    # numpy array / pandas Series
+        return _make_json_safe(obj.tolist())
+    if hasattr(obj, 'to_dict'):   # pandas DataFrame
+        return _make_json_safe(obj.to_dict())
+    try:
+        return str(obj)
+    except Exception:
+        return None
+
+def _save_analysis_data(ticker_dir: Path, ticker: str, stats: dict, fin_data: dict,
+                         dcf_result: dict, comp_result: dict, analyst_cov_result: dict,
+                         transcript_result: dict, sec_result: dict) -> None:
+    """Persist analysis results so the education endpoint can run independently."""
+    payload = _make_json_safe({
+        "ticker": ticker,
+        "stats": stats,
+        "fin_data": fin_data,
+        "dcf_result": dcf_result,
+        "comp_result": comp_result,
+        "analyst_cov_result": analyst_cov_result,
+        "transcript_result": transcript_result,
+        "sec_result": sec_result,
+    })
+    try:
+        (ticker_dir / "analysis_data.json").write_text(json.dumps(payload), encoding="utf-8")
+    except Exception:
+        pass  # non-fatal — education button will surface the error if file is missing
+
 # ── Rate limiter (in-memory, per-IP, 10/hour) ─────────────────────────────────
 _rate_store: dict[str, list] = {}
 _rate_lock  = threading.Lock()
@@ -221,6 +265,10 @@ def _analysis_thread(job_id: str, ticker: str, flags: list[str], audience: str):
             sec_result         = fut_sec.result()
             insider_result     = fut_insider.result()
 
+        # Persist analysis data so the education endpoint can run after main analysis
+        _save_analysis_data(ticker_dir, ticker, stats, fin_data, dcf_result,
+                            comp_result, analyst_cov_result, transcript_result, sec_result)
+
         emit("Generating Claude analysis (Sonnet 4.6)…", 62, "14-section structured research report")
         markdown, news_sentiment, comp_assessment, cov_assessment = build_report(
             ticker, stats, fin_data, news, dcf_result, research, comp_result,
@@ -277,7 +325,7 @@ def _analysis_thread(job_id: str, ticker: str, flags: list[str], audience: str):
             from education.excel_educator import add_excel_comments
             from education.pptx_educator  import add_ppt_notes
             from education.pdf_educator   import build_companion_pdf
-            emit(f"Creating education guide ({audience} audience)…", 94, "3 Sonnet API calls")
+            emit(f"Creating education guide ({audience} audience)…", 94, "6 Sonnet calls in parallel")
             edu_content = run_content_engine(
                 ticker, stats, fin_data, dcf_result, audience,
                 comp_result=comp_result, cov_result=analyst_cov_result,
@@ -289,7 +337,9 @@ def _analysis_thread(job_id: str, ticker: str, flags: list[str], audience: str):
                     add_ppt_notes(str(pitch_path), edu_content["ppt_notes"])
                 build_companion_pdf(ticker, edu_content, str(edu_path), audience)
 
-        files = sorted(f.name for f in ticker_dir.iterdir() if not f.name.startswith("."))
+        _HIDDEN = {"analysis_data.json"}
+        files = sorted(f.name for f in ticker_dir.iterdir()
+                       if not f.name.startswith(".") and f.name not in _HIDDEN)
         rating = analyst_cov_result.get("consensus_rating", "—") if not analyst_cov_result.get("error") else "—"
         tgt    = analyst_cov_result.get("mean_target")            if not analyst_cov_result.get("error") else None
         price  = stats.get("current_price")
@@ -421,6 +471,105 @@ def api_ma():
     jobs[job_id] = {"queue": queue.Queue()}
     threading.Thread(target=_ma_thread, args=(job_id, acquirer, target, premium, cash_pct, synergies), daemon=True).start()
     return jsonify({"job_id": job_id})
+
+# ── Education job ─────────────────────────────────────────────────────────────
+def _education_thread(edu_job_id: str, analysis_job_id: str, ticker: str, audience: str):
+    q = jobs[edu_job_id]["queue"]
+    def emit(msg, pct, detail=""):
+        q.put({"message": msg, "percent": pct, "detail": detail})
+    try:
+        from education.content_engine import run_content_engine
+        from education.excel_educator import add_excel_comments
+        from education.pptx_educator  import add_ppt_notes
+        from education.pdf_educator   import build_companion_pdf
+
+        ticker_dir = (
+            Path(f"/tmp/jobs/{analysis_job_id}/{ticker.upper()}")
+            if IS_VERCEL else
+            REPORTS_DIR / ticker.upper()
+        )
+        data_file = ticker_dir / "analysis_data.json"
+        if not data_file.exists():
+            q.put({"error": "Analysis data not found — run analysis first."}); return
+
+        d = json.loads(data_file.read_text(encoding="utf-8"))
+
+        emit(f"Generating education content ({audience} audience)…", 10, "6 Sonnet calls in parallel")
+        edu_content = run_content_engine(
+            ticker, d["stats"], d["fin_data"], d.get("dcf_result"), audience,
+            comp_result=d.get("comp_result"),
+            cov_result=d.get("analyst_cov_result"),
+            transcript_result=d.get("transcript_result"),
+            sec_result=d.get("sec_result"),
+        )
+        if edu_content.get("error"):
+            q.put({"error": edu_content["error"]}); return
+
+        emit("Annotating Excel workbook…", 55)
+        xl_path = ticker_dir / f"01_{ticker.upper()}_Excel_Report.xlsx"
+        if xl_path.exists():
+            add_excel_comments(str(xl_path), edu_content["excel_comments"], audience)
+
+        emit("Adding speaker notes to pitch deck…", 70)
+        pitch_path = ticker_dir / f"03_{ticker.upper()}_Pitch_Deck.pptx"
+        if pitch_path.exists():
+            add_ppt_notes(str(pitch_path), edu_content["ppt_notes"])
+
+        emit("Building companion PDF…", 85)
+        edu_filename = f"04_{ticker.upper()}_Education_Guide.pdf"
+        build_companion_pdf(ticker, edu_content, str(ticker_dir / edu_filename), audience)
+
+        emit("Education guide complete!", 100)
+        q.put({"done": True, "file": edu_filename,
+               "job_id": analysis_job_id, "ticker": ticker.upper()})
+
+    except Exception as e:
+        import traceback
+        q.put({"error": str(e), "traceback": traceback.format_exc()})
+
+@app.route("/api/education", methods=["POST"])
+@require_auth
+def api_education():
+    """Streaming SSE endpoint for post-hoc education guide generation.
+
+    Returns the progress stream directly from this request (no separate
+    /api/progress call needed) so the thread and SSE reader share the
+    same lambda instance — avoiding cross-instance state loss on Vercel.
+    """
+    body     = request.get_json() or {}
+    ticker   = body.get("ticker", "").upper().strip()
+    audience = body.get("audience", "student")
+    analysis_job_id = body.get("job_id", "")
+    if not ticker or not analysis_job_id:
+        def _err():
+            yield f"data: {json.dumps({'error': 'ticker and job_id required'})}\n\n"
+        return Response(stream_with_context(_err()), mimetype="text/event-stream",
+                        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    edu_job_id = str(uuid.uuid4())[:8]
+    edu_queue  = queue.Queue()
+    jobs[edu_job_id] = {"queue": edu_queue}
+    threading.Thread(
+        target=_education_thread,
+        args=(edu_job_id, analysis_job_id, ticker, audience),
+        daemon=True,
+    ).start()
+
+    def generate():
+        while True:
+            try:
+                msg = edu_queue.get(timeout=120)
+                yield f"data: {json.dumps(msg)}\n\n"
+                if msg.get("done") or msg.get("error"):
+                    break
+            except queue.Empty:
+                yield 'data: {"heartbeat":true}\n\n'
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+    )
 
 # ── SSE progress stream ───────────────────────────────────────────────────────
 @app.route("/api/progress/<job_id>")

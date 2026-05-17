@@ -324,9 +324,65 @@ function ProgressPanel({ jobId, onDone }) {
 }
 
 // ── ResultsPanel component ────────────────────────────────────────────────────
-function ResultsPanel({ result, onReset }) {
+function ResultsPanel({ result, onReset, isVercel }) {
   const { ticker, company, stats = {}, files = [], job_id } = result;
   const ratingClass = stats.rating === "Buy" ? "buy" : stats.rating === "Sell" ? "sell" : "";
+
+  const [eduPhase, setEduPhase] = useState("idle"); // idle | running | done | error
+  const [eduPct,   setEduPct]   = useState(0);
+  const [eduFile,  setEduFile]  = useState(null);
+  const [eduError, setEduError] = useState(null);
+
+  const handleGenEdu = async () => {
+    setEduPhase("running");
+    setEduPct(0);
+    setEduError(null);
+    let finished = false;
+    try {
+      // /api/education returns an SSE stream directly (one request, same lambda
+      // instance as the thread — no cross-instance state loss on Vercel).
+      const resp = await fetch("/api/education", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ ticker, audience: "student", job_id }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        setEduError(err.error || `HTTP ${resp.status}`);
+        setEduPhase("error");
+        return;
+      }
+      const reader = resp.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const msg = JSON.parse(line.slice(6));
+            if (msg.heartbeat) continue;
+            if (msg.percent !== undefined) setEduPct(msg.percent);
+            if (msg.done) { setEduFile(msg.file); setEduPhase("done"); finished = true; }
+            if (msg.error) { setEduError(msg.error); setEduPhase("error"); finished = true; }
+          } catch {}
+        }
+      }
+      if (!finished) {
+        setEduError("Generation timed out (>5 min). Try again — 6 Sonnet calls run in parallel and usually finish in ~90s.");
+        setEduPhase("error");
+      }
+    } catch {
+      setEduError("Connection failed during generation.");
+      setEduPhase("error");
+    }
+  };
+
   return (
     <div className="results-panel">
       <div className="results-header">
@@ -363,6 +419,46 @@ function ResultsPanel({ result, onReset }) {
         ))}
       </div>
       {stats.dcf && <div className="phone-sent mt-3">{ICONS.Phone({ size: 14 })} Notification sent · {stats.dcf}</div>}
+
+      {isVercel && (
+        <div>
+          <hr className="divider" style={{ margin: "1.25rem 0 1rem" }} />
+          <div style={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.1em", color: "var(--muted, #64748b)", marginBottom: "0.75rem", textTransform: "uppercase" }}>
+            Education Guide
+          </div>
+          {eduPhase === "idle" && (
+            <button onClick={handleGenEdu} style={{
+              width: "100%", padding: "0.6rem 1rem", background: "transparent",
+              border: "1.5px solid #003366", color: "#003366", borderRadius: "6px",
+              cursor: "pointer", fontSize: "0.9rem", fontWeight: 600, letterSpacing: "0.02em",
+            }}>
+              Generate Education Guide →
+            </button>
+          )}
+          {eduPhase === "running" && (
+            <div>
+              <div style={{ fontSize: "0.8rem", color: "var(--muted, #64748b)", marginBottom: "5px" }}>
+                Generating… {eduPct}%
+              </div>
+              <div style={{ height: "4px", background: "#e2e8f0", borderRadius: "2px", overflow: "hidden" }}>
+                <div style={{ height: "4px", width: `${eduPct}%`, background: "#003366", borderRadius: "2px", transition: "width 0.4s ease" }} />
+              </div>
+            </div>
+          )}
+          {eduPhase === "done" && eduFile && (
+            <a href={`/api/download/job/${job_id}/${ticker}/${eduFile}`} className="file-btn" download style={{ display: "flex" }}>
+              <span className="file-icon">{ICONS.Education({ size: 16 })}</span>
+              <span className="file-name">↓ Download Education Guide</span>
+              <span className="file-dl">{ICONS.Download({ size: 13 })}</span>
+            </a>
+          )}
+          {eduPhase === "error" && (
+            <div style={{ color: "#dc2626", fontSize: "0.82rem" }}>
+              {eduError || "Education guide generation failed."}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -549,7 +645,7 @@ function AnalyzePage({ prefilledTicker, isVercel }) {
         )}
 
         {phase === "progress" && <ProgressPanel jobId={jobId} onDone={handleDone} />}
-        {phase === "results" && result && <ResultsPanel result={result} onReset={handleReset} />}
+        {phase === "results" && result && <ResultsPanel result={result} onReset={handleReset} isVercel={isVercel} />}
       </div>
     </div>
   );

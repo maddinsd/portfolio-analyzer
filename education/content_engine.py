@@ -13,6 +13,7 @@ import json
 import os
 import re
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import anthropic
@@ -204,19 +205,20 @@ def run_content_engine(
     sec_result: dict | None = None,
 ) -> dict:
     """
-    Makes 5 Claude Sonnet API calls:
+    Makes 6 Claude Sonnet API calls in parallel (ThreadPoolExecutor):
     1. Excel cell comments
     2. PPT speaker notes
     3. PDF sections 1-6
     4. PDF sections 7-12
-    5. Glossary (40 terms)
+    5a. Glossary terms 1-20
+    5b. Glossary terms 21-40
+    All 6 fire concurrently → total wall time ~60s (slowest single call).
     Returns {"excel_comments": dict, "ppt_notes": list, "pdf_content": str, ...}
     """
-    client = anthropic.Anthropic()
-    info       = stats.get("info", {})
-    name       = info.get("shortName") or info.get("longName") or ticker
-    aud_label  = "college finance student" if audience == "student" else "finance professional (CFA/MBA level)"
-    aud_tone   = (
+    info      = stats.get("info", {})
+    name      = info.get("shortName") or info.get("longName") or ticker
+    aud_label = "college finance student" if audience == "student" else "finance professional (CFA/MBA level)"
+    aud_tone  = (
         "Use plain English. Avoid jargon. Define every acronym on first use. "
         "Explain concepts by connecting them to real-world outcomes."
         if audience == "student"
@@ -234,166 +236,154 @@ def run_content_engine(
         f"Return ONLY valid JSON — no prose, no markdown fences, no explanation. "
         f"Use specific numbers from the data provided in every comment or note."
     )
-
-    # ── CALL 1: Excel cell comments ───────────────────────────────────────────
-    terms_str = ", ".join(_EXCEL_TERMS)
-    r1 = client.messages.create(
-        model=_MODEL,
-        max_tokens=_MAX_TOKENS,
-        system=_JSON_SYSTEM,
-        messages=[{"role": "user", "content": (
-            f"Full {name} ({ticker}) data:\n{full_payload}\n\n"
-            f"Write a JSON object where each key is a metric name and the value is a 2-sentence "
-            f"comment written for a {aud_label}. Every comment must use a specific number from the "
-            f"data above — not generic definitions.\n\n"
-            f"Metrics: {terms_str}\n\n"
-            f'Return only the JSON object. Format: {{"{_EXCEL_TERMS[0]}": "comment text", ...}}'
-        )}],
-    )
-    try:
-        text1 = r1.content[0].text.strip()
-        text1 = re.sub(r'^```(?:json)?\s*', '', text1)
-        text1 = re.sub(r'\s*```$', '', text1).strip()
-        s, e = text1.find("{"), text1.rfind("}")
-        excel_comments = json.loads(text1[s:e+1]) if s >= 0 and e > s else {}
-    except Exception as exc:
-        print(f"  [education] Excel comments parse error: {exc}", file=sys.stderr)
-        excel_comments = {}
-
-    # ── CALL 2: PPT speaker notes ─────────────────────────────────────────────
-    slides_str = "\n".join(f"{i+1}. {t}" for i, t in enumerate(_SLIDE_TITLES))
-    r2 = client.messages.create(
-        model=_MODEL,
-        max_tokens=_MAX_TOKENS,
-        system=_JSON_SYSTEM,
-        messages=[{"role": "user", "content": (
-            f"Full {name} ({ticker}) data:\n{full_payload}\n\n"
-            f"Write speaker notes for each of these 12 slides. "
-            f"Each note must reference specific numbers from the data. "
-            f"Minimum 80 words per slide. Written for a {aud_label}.\n\n"
-            f"Slides:\n{slides_str}\n\n"
-            f"Return only a JSON array with exactly 12 objects.\n"
-            f'Format: [{{"slide": 1, "title": "Cover / Title", "notes": "..."}}]'
-        )}],
-    )
-    try:
-        text2 = r2.content[0].text.strip()
-        text2 = re.sub(r'^```(?:json)?\s*', '', text2)
-        text2 = re.sub(r'\s*```$', '', text2).strip()
-        s, e = text2.find("["), text2.rfind("]")
-        ppt_notes = json.loads(text2[s:e+1]) if s >= 0 and e > s else []
-    except Exception as exc:
-        print(f"  [education] PPT notes parse error: {exc}", file=sys.stderr)
-        ppt_notes = []
-
-    # ── CALL 3: PDF sections 1-6 ──────────────────────────────────────────────
-    sections_1_6_prompt = (
-        f"Write sections 1 through 6 of a companion guide for the {name} ({ticker}) "
-        f"equity research report.\n\n"
-        f"Full data:\n{full_payload}\n\n"
-        f"Write exactly these 6 sections. Each section must be at least 200 words. "
-        f"Every section must contain specific numbers from the data. "
-        f"Use the numbered format: '1. Section Title' on its own line, then the content.\n\n"
-        f"1. How to Read This Report\n"
-        f"Explain the structure of the research report and what each section tells the reader. "
-        f"Reference the actual rating and price target from the data.\n\n"
-        f"2. {name}'s Business Model\n"
-        f"Explain specifically how {name} makes money. Use revenue, margins, and segment data from above.\n\n"
-        f"3. Key Financial Metrics\n"
-        f"Explain what the most important metrics are for this specific company and why. "
-        f"Reference the actual FCF margin, gross margin, and revenue growth from the data.\n\n"
-        f"4. DCF Valuation\n"
-        f"Explain step by step how the DCF was calculated for {name}. "
-        f"Use the actual WACC, terminal growth, and intrinsic value from the data.\n\n"
-        f"5. Reading the Comparable Companies Table\n"
-        f"Explain what the comps table shows. Reference the actual peer median P/E and "
-        f"{ticker}'s forward P/E from the data.\n\n"
-        f"6. Understanding Sensitivity Analysis\n"
-        f"Explain what the sensitivity table shows and why WACC and terminal growth rate matter. "
-        f"Use specific numbers from the DCF data."
-    )
-
-    for attempt in range(2):
-        r3 = client.messages.create(
-            model=_MODEL,
-            max_tokens=_MAX_TOKENS,
-            system=edu_system,
-            messages=[{"role": "user", "content": sections_1_6_prompt}],
-        )
-        sections_1_6_text = r3.content[0].text.strip()
-        try:
-            _validate_sections({"sections_1_6": sections_1_6_text})
-            break
-        except ValueError as exc:
-            if attempt == 0:
-                print(f"  [education] Sections 1-6 validation failed (retrying): {exc}", file=sys.stderr)
-            else:
-                print(f"  [education] Sections 1-6 validation failed after retry: {exc}", file=sys.stderr)
-
-    # ── CALL 4: PDF sections 7-12 ─────────────────────────────────────────────
-    sections_7_12_prompt = (
-        f"Write sections 7 through 12 of a companion guide for the {name} ({ticker}) "
-        f"equity research report.\n\n"
-        f"Full data:\n{full_payload}\n\n"
-        f"Write exactly these 6 sections. Each section must be at least 200 words. "
-        f"Every section must contain specific numbers from the data. "
-        f"Use the numbered format: '7. Section Title' on its own line, then the content.\n\n"
-        f"7. Risk Factors\n"
-        f"Explain the specific risks to this investment. Reference actual risk factors from the SEC "
-        f"filing data and the bear case. Do not write generic risk language.\n\n"
-        f"8. Investment Scenarios\n"
-        f"Write the bull case, base case, and bear case price targets with their specific assumptions. "
-        f"The base case target is the analyst consensus target from the coverage data. "
-        f"Bull case = 15% above base. Bear case = 25% below current price. "
-        f"State specific revenue growth and margin assumptions for each scenario.\n\n"
-        f"9. Insider and Institutional Signals\n"
-        f"Explain what insider buying and selling patterns signal for this stock. "
-        f"Use the insider data from the payload. If no recent insider transactions, say so directly.\n\n"
-        f"10. Earnings Beats and Misses\n"
-        f"Explain the earnings beat/miss history. Reference the actual beat streak and beat count "
-        f"from the earnings data. Explain what consistent beats mean for the stock price.\n\n"
-        f"11. How to Track This Investment\n"
-        f"List the specific metrics and dates to monitor for {name}. Include the next earnings date "
-        f"from the data and specific things to watch for.\n\n"
-        f"12. Data Sources and Methodology\n"
-        f"Explain where the data in this report came from and how the analysis was built. "
-        f"Reference yfinance, FMP, and SEC EDGAR as sources."
-    )
-
-    for attempt in range(2):
-        r4 = client.messages.create(
-            model=_MODEL,
-            max_tokens=_MAX_TOKENS,
-            system=edu_system,
-            messages=[{"role": "user", "content": sections_7_12_prompt}],
-        )
-        sections_7_12_text = r4.content[0].text.strip()
-        try:
-            _validate_sections({"sections_7_12": sections_7_12_text})
-            break
-        except ValueError as exc:
-            if attempt == 0:
-                print(f"  [education] Sections 7-12 validation failed (retrying): {exc}", file=sys.stderr)
-            else:
-                print(f"  [education] Sections 7-12 validation failed after retry: {exc}", file=sys.stderr)
-
-    # ── CALLS 5a + 5b: Glossary split into two 20-term batches ───────────────
     _gloss_system = (
         f"Define each term in 1-2 sentences. Use concrete examples from {ticker} data where "
         f"available. Never truncate. Complete all terms in the list. No filler. No hedging."
     )
 
     def _count_terms(text: str) -> int:
-        """Count glossary term definitions, accepting TERM: or **TERM**: formats."""
         return sum(1 for ln in text.splitlines()
                    if re.match(r"^\**[A-Za-z][\w\s/()&,./-]{1,60}\**\s*:", ln.strip()))
 
-    def _glossary_call(terms: str, batch_label: str) -> str:
+    # ── Define each call as a callable ───────────────────────────────────────
+    def call_excel_comments() -> dict:
+        client = anthropic.Anthropic()
+        terms_str = ", ".join(_EXCEL_TERMS)
+        r = client.messages.create(
+            model=_MODEL, max_tokens=_MAX_TOKENS, system=_JSON_SYSTEM,
+            messages=[{"role": "user", "content": (
+                f"Full {name} ({ticker}) data:\n{full_payload}\n\n"
+                f"Write a JSON object where each key is a metric name and the value is a 2-sentence "
+                f"comment written for a {aud_label}. Every comment must use a specific number from the "
+                f"data above — not generic definitions.\n\nMetrics: {terms_str}\n\n"
+                f'Return only the JSON object. Format: {{"{_EXCEL_TERMS[0]}": "comment text", ...}}'
+            )}],
+        )
+        try:
+            t = r.content[0].text.strip()
+            t = re.sub(r'^```(?:json)?\s*', '', t)
+            t = re.sub(r'\s*```$', '', t).strip()
+            s, e = t.find("{"), t.rfind("}")
+            return json.loads(t[s:e+1]) if s >= 0 and e > s else {}
+        except Exception as exc:
+            print(f"  [education] Excel comments parse error: {exc}", file=sys.stderr)
+            return {}
+
+    def call_ppt_notes() -> list:
+        client = anthropic.Anthropic()
+        slides_str = "\n".join(f"{i+1}. {t}" for i, t in enumerate(_SLIDE_TITLES))
+        r = client.messages.create(
+            model=_MODEL, max_tokens=_MAX_TOKENS, system=_JSON_SYSTEM,
+            messages=[{"role": "user", "content": (
+                f"Full {name} ({ticker}) data:\n{full_payload}\n\n"
+                f"Write speaker notes for each of these 12 slides. "
+                f"Each note must reference specific numbers from the data. "
+                f"Minimum 80 words per slide. Written for a {aud_label}.\n\n"
+                f"Slides:\n{slides_str}\n\n"
+                f"Return only a JSON array with exactly 12 objects.\n"
+                f'Format: [{{"slide": 1, "title": "Cover / Title", "notes": "..."}}]'
+            )}],
+        )
+        try:
+            t = r.content[0].text.strip()
+            t = re.sub(r'^```(?:json)?\s*', '', t)
+            t = re.sub(r'\s*```$', '', t).strip()
+            s, e = t.find("["), t.rfind("]")
+            return json.loads(t[s:e+1]) if s >= 0 and e > s else []
+        except Exception as exc:
+            print(f"  [education] PPT notes parse error: {exc}", file=sys.stderr)
+            return []
+
+    def call_sections_1_6() -> str:
+        client = anthropic.Anthropic()
+        prompt = (
+            f"Write sections 1 through 6 of a companion guide for the {name} ({ticker}) "
+            f"equity research report.\n\nFull data:\n{full_payload}\n\n"
+            f"Write exactly these 6 sections. Each section must be at least 200 words. "
+            f"Every section must contain specific numbers from the data. "
+            f"Use the numbered format: '1. Section Title' on its own line, then the content.\n\n"
+            f"1. How to Read This Report\n"
+            f"Explain the structure of the research report and what each section tells the reader. "
+            f"Reference the actual rating and price target from the data.\n\n"
+            f"2. {name}'s Business Model\n"
+            f"Explain specifically how {name} makes money. Use revenue, margins, and segment data from above.\n\n"
+            f"3. Key Financial Metrics\n"
+            f"Explain what the most important metrics are for this specific company and why. "
+            f"Reference the actual FCF margin, gross margin, and revenue growth from the data.\n\n"
+            f"4. DCF Valuation\n"
+            f"Explain step by step how the DCF was calculated for {name}. "
+            f"Use the actual WACC, terminal growth, and intrinsic value from the data.\n\n"
+            f"5. Reading the Comparable Companies Table\n"
+            f"Explain what the comps table shows. Reference the actual peer median P/E and "
+            f"{ticker}'s forward P/E from the data.\n\n"
+            f"6. Understanding Sensitivity Analysis\n"
+            f"Explain what the sensitivity table shows and why WACC and terminal growth rate matter. "
+            f"Use specific numbers from the DCF data."
+        )
+        for attempt in range(2):
+            r = client.messages.create(
+                model=_MODEL, max_tokens=_MAX_TOKENS, system=edu_system,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = r.content[0].text.strip()
+            try:
+                _validate_sections({"sections_1_6": text}); return text
+            except ValueError as exc:
+                if attempt == 0:
+                    print(f"  [education] Sections 1-6 validation failed (retrying): {exc}", file=sys.stderr)
+                else:
+                    print(f"  [education] Sections 1-6 validation failed after retry: {exc}", file=sys.stderr)
+        return text
+
+    def call_sections_7_12() -> str:
+        client = anthropic.Anthropic()
+        prompt = (
+            f"Write sections 7 through 12 of a companion guide for the {name} ({ticker}) "
+            f"equity research report.\n\nFull data:\n{full_payload}\n\n"
+            f"Write exactly these 6 sections. Each section must be at least 200 words. "
+            f"Every section must contain specific numbers from the data. "
+            f"Use the numbered format: '7. Section Title' on its own line, then the content.\n\n"
+            f"7. Risk Factors\n"
+            f"Explain the specific risks to this investment. Reference actual risk factors from the SEC "
+            f"filing data and the bear case. Do not write generic risk language.\n\n"
+            f"8. Investment Scenarios\n"
+            f"Write the bull case, base case, and bear case price targets with their specific assumptions. "
+            f"The base case target is the analyst consensus target from the coverage data. "
+            f"Bull case = 15% above base. Bear case = 25% below current price. "
+            f"State specific revenue growth and margin assumptions for each scenario.\n\n"
+            f"9. Insider and Institutional Signals\n"
+            f"Explain what insider buying and selling patterns signal for this stock. "
+            f"Use the insider data from the payload. If no recent insider transactions, say so directly.\n\n"
+            f"10. Earnings Beats and Misses\n"
+            f"Explain the earnings beat/miss history. Reference the actual beat streak and beat count "
+            f"from the earnings data. Explain what consistent beats mean for the stock price.\n\n"
+            f"11. How to Track This Investment\n"
+            f"List the specific metrics and dates to monitor for {name}. Include the next earnings date "
+            f"from the data and specific things to watch for.\n\n"
+            f"12. Data Sources and Methodology\n"
+            f"Explain where the data in this report came from and how the analysis was built. "
+            f"Reference yfinance, FMP, and SEC EDGAR as sources."
+        )
+        for attempt in range(2):
+            r = client.messages.create(
+                model=_MODEL, max_tokens=_MAX_TOKENS, system=edu_system,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = r.content[0].text.strip()
+            try:
+                _validate_sections({"sections_7_12": text}); return text
+            except ValueError as exc:
+                if attempt == 0:
+                    print(f"  [education] Sections 7-12 validation failed (retrying): {exc}", file=sys.stderr)
+                else:
+                    print(f"  [education] Sections 7-12 validation failed after retry: {exc}", file=sys.stderr)
+        return text
+
+    def call_glossary(terms: str, batch_label: str) -> str:
+        client = anthropic.Anthropic()
         for attempt in range(2):
             resp = client.messages.create(
-                model=_MODEL,
-                max_tokens=2000,
-                system=_gloss_system,
+                model=_MODEL, max_tokens=2000, system=_gloss_system,
                 messages=[{"role": "user", "content": (
                     f"Full {ticker} data:\n{full_payload}\n\n"
                     f"Define these 20 finance terms. For each, provide a 1-2 sentence definition "
@@ -404,33 +394,54 @@ def run_content_engine(
                 )}],
             )
             text = resp.content[0].text.strip()
-            n_defined = _count_terms(text)
-            if n_defined >= 18:
+            if _count_terms(text) >= 18:
                 return text
             if attempt == 0:
-                print(f"  [education] Glossary {batch_label} only {n_defined}/20 terms (retrying)",
+                print(f"  [education] Glossary {batch_label} only {_count_terms(text)}/20 terms (retrying)",
                       file=sys.stderr)
-        return text  # accept on second attempt regardless
+        return text
 
-    batch_a = _glossary_call(_GLOSSARY_TERMS_A, "A")
-    batch_b = _glossary_call(_GLOSSARY_TERMS_B, "B")
+    # ── Fire all 6 calls in parallel ─────────────────────────────────────────
+    tasks = {
+        "excel":  call_excel_comments,
+        "ppt":    call_ppt_notes,
+        "s16":    call_sections_1_6,
+        "s712":   call_sections_7_12,
+        "gloss_a": lambda: call_glossary(_GLOSSARY_TERMS_A, "A"),
+        "gloss_b": lambda: call_glossary(_GLOSSARY_TERMS_B, "B"),
+    }
+    results: dict = {}
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        future_to_key = {executor.submit(fn): key for key, fn in tasks.items()}
+        for future in as_completed(future_to_key):
+            key = future_to_key[future]
+            try:
+                results[key] = future.result()
+            except Exception as exc:
+                print(f"  [education] Task {key} failed: {exc}", file=sys.stderr)
+                results[key] = {} if key in ("excel", "ppt") else ""
+
+    excel_comments    = results.get("excel", {})
+    ppt_notes         = results.get("ppt", [])
+    sections_1_6_text = results.get("s16", "")
+    sections_7_12_text = results.get("s712", "")
+    batch_a           = results.get("gloss_a", "")
+    batch_b           = results.get("gloss_b", "")
+
     combined = batch_a + "\n" + batch_b
-
-    # Validate combined glossary has at least 38 terms
-    n_total = _count_terms(combined)
+    n_total  = _count_terms(combined)
     if n_total < 38:
-        print(f"  [education] Glossary combined only {n_total}/40 terms after both batches",
-              file=sys.stderr)
+        print(f"  [education] Glossary combined only {n_total}/40 terms", file=sys.stderr)
     glossary_text = "GLOSSARY\n" + combined
 
     pdf_content = sections_1_6_text + "\n\n" + sections_7_12_text + "\n\n" + glossary_text
 
     return {
-        "ticker":        ticker,
-        "company_name":  name,
-        "audience":      audience,
+        "ticker":         ticker,
+        "company_name":   name,
+        "audience":       audience,
         "excel_comments": excel_comments,
-        "ppt_notes":     ppt_notes,
-        "pdf_content":   pdf_content,
-        "error":         None,
+        "ppt_notes":      ppt_notes,
+        "pdf_content":    pdf_content,
+        "error":          None,
     }
