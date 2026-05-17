@@ -5,7 +5,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Any
 
-from lbo_fetcher import LBOInputs
+from lbo.lbo_fetcher import LBOInputs
 
 
 # ── Assumptions ────────────────────────────────────────────────────────────────

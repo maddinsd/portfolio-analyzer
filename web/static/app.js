@@ -746,7 +746,7 @@ function LBOPage() {
                 <span className="slider-val">{entryMult ? `${entryMult}x` : "Auto"}</span>
               </div>
               <input type="range" min="5" max="20" step="0.5"
-                value={entryMult || 10}
+                value={entryMult ?? 12.5}
                 onChange={e => setEntryMult(parseFloat(e.target.value))}
               />
               <div className="slider-bounds"><span>5x</span><span>Auto (market)</span><span>20x</span></div>
