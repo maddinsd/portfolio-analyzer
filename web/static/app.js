@@ -429,7 +429,7 @@ function ResultsPanel({ result, onReset, isVercel }) {
           </a>
         ))}
       </div>
-      {stats.dcf && <div className="phone-sent mt-3">{ICONS.Phone({ size: 14 })} {ntfy_ok ? "Notification sent" : "Notification failed"} · {stats.dcf}</div>}
+      <div className="phone-sent mt-3">{ICONS.Phone({ size: 14 })} {ntfy_ok ? "Notification sent" : "Notification failed"}</div>
 
       {isVercel && (
         <div>
