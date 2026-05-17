@@ -65,42 +65,20 @@ body {
 }
 
 .sidebar-logo {
-  padding: 20px 20px 18px;
-  border-bottom: 1px solid rgba(255,255,255,0.1);
+  padding: 18px 20px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.2);
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
 }
 
-.logo-uc-mark {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.logo-uc-mark img {
-  height: 32px;
-  width: auto;
-  object-fit: contain;
-  filter: brightness(0) invert(1);
-  opacity: 0.9;
-}
-
-.logo-text h2 {
-  font-size: 14px;
-  font-weight: 700;
-  color: #FFFFFF;
-  letter-spacing: -0.1px;
-  line-height: 1.2;
-}
-
-.logo-text span {
+.sidebar-platform-label {
   font-size: 10px;
-  color: rgba(255,255,255,0.5);
-  letter-spacing: 0.6px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.55);
+  letter-spacing: 0.8px;
   text-transform: uppercase;
-  display: block;
-  margin-top: 1px;
 }
 
 .sidebar-nav {

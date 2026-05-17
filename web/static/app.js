@@ -928,13 +928,13 @@ function Sidebar({ page, onNavigate }) {
   return (
     <nav className="sidebar">
       <div className="sidebar-logo">
-        <div className="logo-uc-mark">
-          <img src="/assets/uc_logo.png" alt="UC" onError={(e) => e.target.style.display='none'} />
-        </div>
-        <div className="logo-text">
-          <h2>Lindner Research</h2>
-          <span>Equity Platform</span>
-        </div>
+        <img
+          src="/assets/uc_logo_white.png"
+          alt="University of Cincinnati"
+          style={{ height: "36px", width: "auto" }}
+          onError={(e) => e.target.style.display = "none"}
+        />
+        <span className="sidebar-platform-label">Equity Platform</span>
       </div>
       <div className="sidebar-nav">
         <div className="nav-section-label">Tools</div>
