@@ -325,7 +325,7 @@ function ProgressPanel({ jobId, onDone }) {
 
 // ── ResultsPanel component ────────────────────────────────────────────────────
 function ResultsPanel({ result, onReset }) {
-  const { ticker, company, stats = {}, files = [] } = result;
+  const { ticker, company, stats = {}, files = [], job_id } = result;
   const ratingClass = stats.rating === "Buy" ? "buy" : stats.rating === "Sell" ? "sell" : "";
   return (
     <div className="results-panel">
@@ -355,7 +355,7 @@ function ResultsPanel({ result, onReset }) {
       </div>
       <div className="files-grid">
         {files.map(f => (
-          <a key={f} href={`/api/download/${ticker}/${f}`} className="file-btn" download>
+          <a key={f} href={`/api/download/job/${job_id}/${ticker}/${f}`} className="file-btn" download>
             <span className="file-icon">{fileIcon(f)}</span>
             <span className="file-name">{fileLabel(f)}</span>
             <span className="file-dl">{ICONS.Download({ size: 13 })}</span>
@@ -1078,9 +1078,22 @@ function HistoryPage() {
     api("/api/history").then(setHistory);
   }, []);
 
-  const filtered = history?.filter(h =>
+  if (history?.vercel_mode) {
+    return (
+      <div className="page">
+        <div className="page-header"><div><h1>Analysis History</h1><p>Not available on cloud version</p></div></div>
+        <div className="empty-state">
+          <div className="empty-icon">{ICONS.FolderOpen({ size: 40 })}</div>
+          <h3>History Available Locally</h3>
+          <p>Analysis history is stored on your local machine. Run the platform at localhost:5001 to access your full history.</p>
+        </div>
+      </div>
+    );
+  }
+
+  const filtered = (history?.items ?? []).filter(h =>
     h.ticker.includes(search.toUpperCase())
-  ) || [];
+  );
 
   const ratingCls = (r) => {
     if (!r) return "";

@@ -18,39 +18,55 @@ from flask import (Flask, Response, jsonify, make_response, redirect,
                    render_template, request, send_file, send_from_directory,
                    stream_with_context)
 from flask_cors import CORS
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
 
 # ── Paths & environment ───────────────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).parent.parent
-load_dotenv(PROJECT_ROOT / ".env")
+IS_VERCEL    = os.environ.get("VERCEL") == "1"
+
+if not IS_VERCEL:
+    load_dotenv(PROJECT_ROOT / ".env")
 
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-REPORTS_DIR = Path.home() / "Desktop" / "reports"
-LBO_OUTPUTS = PROJECT_ROOT / "lbo" / "outputs"
-MA_OUTPUTS  = PROJECT_ROOT / "ma"  / "outputs"
-WATCHLIST   = PROJECT_ROOT / "automation" / "watchlist.json"
+if IS_VERCEL:
+    REPORTS_DIR = Path("/tmp/reports")
+    LBO_OUTPUTS = Path("/tmp/lbo/outputs")
+    MA_OUTPUTS  = Path("/tmp/ma/outputs")
+    WATCHLIST   = Path("/tmp/watchlist.json")
+else:
+    REPORTS_DIR = Path.home() / "Desktop" / "reports"
+    LBO_OUTPUTS = PROJECT_ROOT / "lbo" / "outputs"
+    MA_OUTPUTS  = PROJECT_ROOT / "ma"  / "outputs"
+    WATCHLIST   = PROJECT_ROOT / "automation" / "watchlist.json"
 
 APP_PASSWORD = os.environ.get("APP_PASSWORD", "lindner2026")
 
 app = Flask(__name__)
 CORS(app)
 
-limiter = Limiter(
-    get_remote_address,
-    app=app,
-    default_limits=[],
-    storage_uri="memory://",
-)
+jobs: dict[str, dict] = {}
 
-jobs: dict[str, queue.Queue] = {}
+# ── Rate limiter (in-memory, per-IP, 10/hour) ─────────────────────────────────
+_rate_store: dict[str, list] = {}
+_rate_lock  = threading.Lock()
+
+def _check_rate_limit(ip: str, limit: int = 10, window: int = 3600) -> bool:
+    now = time.time()
+    with _rate_lock:
+        bucket = _rate_store.get(ip, [])
+        bucket = [t for t in bucket if now - t < window]
+        if len(bucket) >= limit:
+            _rate_store[ip] = bucket
+            return False
+        bucket.append(now)
+        _rate_store[ip] = bucket
+        return True
 
 # ── Daily analysis counter ────────────────────────────────────────────────────
 _counter_lock = threading.Lock()
 _DAILY_LIMIT  = 20
-_COUNTER_FILE = PROJECT_ROOT / ".daily_counter.json"
+_COUNTER_FILE = Path("/tmp/.daily_counter.json") if IS_VERCEL else (PROJECT_ROOT / ".daily_counter.json")
 
 def _check_daily_limit() -> bool:
     """Increment today's analysis count. Returns False if limit exceeded."""
@@ -135,7 +151,7 @@ def api_quote(ticker):
 
 # ── Analysis job ──────────────────────────────────────────────────────────────
 def _analysis_thread(job_id: str, ticker: str, flags: list[str], audience: str):
-    q = jobs[job_id]
+    q = jobs[job_id]["queue"]
 
     def emit(msg: str, pct: int, detail: str = ""):
         q.put({"message": msg, "percent": pct, "detail": detail})
@@ -153,7 +169,7 @@ def _analysis_thread(job_id: str, ticker: str, flags: list[str], audience: str):
         from sec_parser       import run_sec_parser
         from insider_tracker  import run_insider_tracker
 
-        ticker_dir = REPORTS_DIR / ticker
+        ticker_dir = Path(jobs[job_id]["output_dir"])
         ticker_dir.mkdir(parents=True, exist_ok=True)
         xl_path    = ticker_dir / f"01_{ticker}_Excel_Report.xlsx"
         pdf_path   = ticker_dir / f"02_{ticker}_Research_Report.pdf"
@@ -271,6 +287,7 @@ def _analysis_thread(job_id: str, ticker: str, flags: list[str], audience: str):
         emit("Analysis complete!", 100)
         q.put({
             "done":    True,
+            "job_id":  job_id,
             "ticker":  ticker,
             "company": company_name,
             "files":   files,
@@ -288,7 +305,6 @@ def _analysis_thread(job_id: str, ticker: str, flags: list[str], audience: str):
 
 @app.route("/api/analyze", methods=["POST"])
 @require_auth
-@limiter.limit("10 per hour")
 def api_analyze():
     body     = request.get_json() or {}
     ticker   = body.get("ticker", "").upper().strip()
@@ -296,16 +312,20 @@ def api_analyze():
     audience = body.get("audience", "student")
     if not ticker or not ticker.replace(".", "").isalpha() or len(ticker) > 6:
         return jsonify({"error": "Invalid ticker"}), 400
+    if not _check_rate_limit(request.remote_addr):
+        return jsonify({"error": "Rate limit exceeded. Max 10 analyses per hour."}), 429
     if not _check_daily_limit():
         return jsonify({"error": "Daily analysis limit reached. Try again tomorrow."}), 429
     job_id = str(uuid.uuid4())[:8]
-    jobs[job_id] = queue.Queue()
+    output_dir = Path(f"/tmp/jobs/{job_id}/{ticker}") if IS_VERCEL else (REPORTS_DIR / ticker)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    jobs[job_id] = {"queue": queue.Queue(), "output_dir": str(output_dir)}
     threading.Thread(target=_analysis_thread, args=(job_id, ticker, flags, audience), daemon=True).start()
     return jsonify({"job_id": job_id})
 
 # ── LBO job ───────────────────────────────────────────────────────────────────
 def _lbo_thread(job_id: str, ticker: str, entry_multiple, hold_years: int, debt_pct: float):
-    q = jobs[job_id]
+    q = jobs[job_id]["queue"]
     def emit(msg, pct, detail=""):
         q.put({"message": msg, "percent": pct, "detail": detail})
     try:
@@ -316,12 +336,13 @@ def _lbo_thread(job_id: str, ticker: str, entry_multiple, hold_years: int, debt_
         emit("Computing returns (IRR, MOIC) and sensitivity…", 75)
         emit("Building 9-tab Excel workbook…", 90)
         LBO_OUTPUTS.mkdir(parents=True, exist_ok=True)
+        lbo_out = str(LBO_OUTPUTS / f"{ticker}_{date.today().strftime('%Y%m%d')}_lbo.xlsx") if IS_VERCEL else None
         out_path = lbo_run(
             ticker=ticker,
             entry_multiple=entry_multiple,
             hold_years=hold_years,
             debt_pct=debt_pct,
-            output_path=None,
+            output_path=lbo_out,
         )
         emit("LBO model complete!", 100)
         q.put({"done": True, "ticker": ticker, "file": Path(out_path).name, "output_dir": "lbo"})
@@ -340,13 +361,13 @@ def api_lbo():
     if not ticker:
         return jsonify({"error": "ticker required"}), 400
     job_id = str(uuid.uuid4())[:8]
-    jobs[job_id] = queue.Queue()
+    jobs[job_id] = {"queue": queue.Queue()}
     threading.Thread(target=_lbo_thread, args=(job_id, ticker, entry_multiple, hold_years, debt_pct), daemon=True).start()
     return jsonify({"job_id": job_id})
 
 # ── M&A job ───────────────────────────────────────────────────────────────────
 def _ma_thread(job_id: str, acquirer: str, target: str, premium_pct: float, cash_pct: float, synergies_m):
-    q = jobs[job_id]
+    q = jobs[job_id]["queue"]
     def emit(msg, pct, detail=""):
         q.put({"message": msg, "percent": pct, "detail": detail})
     try:
@@ -359,13 +380,14 @@ def _ma_thread(job_id: str, acquirer: str, target: str, premium_pct: float, cash
         emit("Building sensitivity tables…", 82)
         emit("Writing 8-tab Excel workbook…", 92)
         MA_OUTPUTS.mkdir(parents=True, exist_ok=True)
+        ma_out = str(MA_OUTPUTS / f"{acquirer}_acquires_{target}_{date.today().strftime('%Y%m%d')}.xlsx") if IS_VERCEL else None
         out_path = ma_run(
             acquirer=acquirer,
             target=target,
             premium_pct=premium_pct,
             cash_pct=cash_pct,
             synergies_m=synergies_m,
-            output_path=None,
+            output_path=ma_out,
         )
         emit("M&A model complete!", 100)
         q.put({"done": True, "acquirer": acquirer, "target": target,
@@ -386,7 +408,7 @@ def api_ma():
     if not acquirer or not target:
         return jsonify({"error": "acquirer and target required"}), 400
     job_id = str(uuid.uuid4())[:8]
-    jobs[job_id] = queue.Queue()
+    jobs[job_id] = {"queue": queue.Queue()}
     threading.Thread(target=_ma_thread, args=(job_id, acquirer, target, premium, cash_pct, synergies), daemon=True).start()
     return jsonify({"job_id": job_id})
 
@@ -395,7 +417,8 @@ def api_ma():
 @require_auth
 def api_progress(job_id):
     def generate():
-        q = jobs.get(job_id)
+        job = jobs.get(job_id)
+        q = job["queue"] if job else None
         if not q:
             yield f"data: {json.dumps({'error': 'job not found'})}\n\n"
             return
@@ -438,10 +461,24 @@ def api_download_ma(filename):
         return jsonify({"error": "file not found"}), 404
     return send_file(str(path), as_attachment=True, download_name=filename)
 
+@app.route("/api/download/job/<job_id>/<ticker>/<filename>")
+@require_auth
+def api_download_job(job_id, ticker, filename):
+    """Vercel-compatible download: reads from job-specific /tmp dir or local REPORTS_DIR."""
+    if IS_VERCEL:
+        path = Path(f"/tmp/jobs/{job_id}/{ticker.upper()}/{filename}")
+    else:
+        path = REPORTS_DIR / ticker.upper() / filename
+    if not path.exists():
+        return jsonify({"error": "File not found or expired"}), 404
+    return send_file(str(path), as_attachment=True, download_name=filename)
+
 # ── History ───────────────────────────────────────────────────────────────────
 @app.route("/api/history")
 @require_auth
 def api_history():
+    if IS_VERCEL:
+        return jsonify({"vercel_mode": True, "items": []})
     results = []
     NUMBERED = ("01_", "02_", "03_", "04_", "05_")
     if REPORTS_DIR.exists():
@@ -465,7 +502,7 @@ def api_history():
                 "rating":    rating,
                 "target":    target,
             })
-    return jsonify(results)
+    return jsonify({"vercel_mode": False, "items": results})
 
 # ── Watchlist ─────────────────────────────────────────────────────────────────
 @app.route("/api/watchlist", methods=["GET"])
