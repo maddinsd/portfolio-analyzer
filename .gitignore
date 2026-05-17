@@ -26,6 +26,7 @@ automation/ic_memos/
 
 # Build artifacts
 .build_checkpoint.json
+.ui_checkpoint.json
 
 # Environment
 .env

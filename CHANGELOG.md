@@ -4,6 +4,23 @@ All notable changes to this project are documented here.
 
 ---
 
+## v10.0 — Web Interface
+**2026-05-17**
+
+- Professional web platform deployed to Vercel at https://web-chi-ten-48.vercel.app
+- **`web/app.py`** — Flask backend: SSE real-time progress streaming, job-based async execution, rate limiting (10/hr per IP, 20/day global), 8-hour session management, ntfy.sh push notifications on analysis completion
+- **`web/static/app.js`** — React frontend with Apple-inspired fintech design: watchlist with live prices, analysis page, LBO calculator, M&A deal builder, notifications page, history browser
+- **`web/static/styles.css`** — Design system: UC Lindner branding, Heroicons SVG icon library, responsive layout
+- **`web/sync_pipeline.sh`** — Syncs all pipeline modules from project root into `web/` for self-contained Vercel deployment
+- **`Makefile`** — `make deploy` runs sync then `vercel deploy --prod`
+- All 5 tools accessible via browser: stock analysis, LBO calculator, M&A deal builder, notification config, analysis history
+- Password protected (`lindner2026`), rate limited, session-managed
+- LBO and M&A models fixed: `lbo_engine.py` import corrected from bare `lbo_fetcher` to `lbo.lbo_fetcher` for package-mode execution
+- Education guide parallelized: 6 sequential Sonnet calls (210s) → `ThreadPoolExecutor(max_workers=6)` (~90s)
+- SSE heartbeat every 15s to prevent Vercel edge proxy idle timeout
+
+---
+
 ## v9.0 — Education Layer
 **2026-05-15**
 

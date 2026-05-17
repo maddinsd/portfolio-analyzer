@@ -11,6 +11,15 @@ Developed as a demonstration of applied AI and financial modeling skills targeti
 
 ---
 
+## Live Platform
+
+**https://web-chi-ten-48.vercel.app**  
+Password: `lindner2026`
+
+Run any public company ticker and get a complete institutional research package — directly in the browser. No installation required.
+
+---
+
 ## What It Produces
 
 | Output | Description | Trigger |
@@ -23,6 +32,56 @@ Developed as a demonstration of applied AI and financial modeling skills targeti
 | **M&A model** | 8-tab merger consequences model: accretion/dilution (GAAP + Cash EPS), synergies, break-even analysis | `python3 ma/ma_model.py MSFT AAPL` |
 
 All outputs are timestamped and archived in `reports/TICKER/` automatically.
+
+---
+
+## Web Interface
+
+A full-stack web platform for running all tools from a browser. Built with Flask (SSE streaming backend) and React (Apple-inspired fintech UI). Deployed on Vercel.
+
+### Pages
+
+| Page | Description |
+|------|-------------|
+| **Home / Watchlist** | Live prices for 8 tracked tickers, prior analysis status, one-click re-analysis |
+| **New Analysis** | Run a full stock analysis with real-time progress streaming (SSE); downloads Excel, PDF, Pitch Deck, Education Guide |
+| **LBO Calculator** | 9-tab LBO model in-browser: set entry multiple, hold period, debt ratio, instant MOIC/IRR preview |
+| **M&A Deal Builder** | 8-tab merger model: enter acquirer + target, set offer premium and cash/stock mix, optional synergy override |
+| **Notifications** | Configure ntfy.sh push alerts for watchlist price thresholds; send test notification |
+| **History** | Browse all prior analysis runs; download outputs from any past job |
+
+### Running Locally
+
+```bash
+cd web
+pip install -r requirements.txt
+flask run --port 5001
+# Open http://localhost:5001
+```
+
+### Deploying to Vercel
+
+```bash
+# Sync pipeline files from project root into web/, then deploy
+make deploy
+
+# Sync only (no deploy)
+cd web && bash sync_pipeline.sh
+```
+
+The `sync_pipeline.sh` script copies all pipeline modules (fetcher.py, analyzer.py, etc.) from the project root into `web/` so Vercel has a self-contained deployable directory.
+
+---
+
+## Security
+
+The web platform is secured at multiple layers:
+
+- **Password protected** — single shared password, cookie-based session authentication
+- **Rate limited** — maximum 10 analyses per hour per IP address
+- **Daily cap** — maximum 20 analyses per day globally to control API costs
+- **Session expiry** — sessions expire after 8 hours; login required again
+- **API key isolation** — all keys stored as Vercel environment variables; never in code or version control
 
 ---
 
@@ -69,7 +128,7 @@ Total runtime: ~30 seconds (network-bound). Claude API call: ~8 seconds.
 
 **NewsAPI** — Latest 5 headlines for the company and ticker symbol for news sentiment analysis.
 
-**Anthropic Claude API** — Powers the 14-section structured analysis and three parallel research agents (investment thesis, comps analysis, earnings preview). Model: `claude-sonnet-4-6`. Token budget: ≤900 tokens input, 4,096 tokens output.
+**Anthropic Claude API** — Powers the 14-section structured analysis, three parallel research agents (investment thesis, comps analysis, earnings preview), and the education layer content engine. Model: `claude-sonnet-4-6`. Token budget: ≤900 tokens input, 4,096 tokens output.
 
 ---
 
@@ -136,7 +195,9 @@ Phone notifications use [ntfy.sh](https://ntfy.sh) — a free, open-source push 
 
 **Graceful degradation, always** — Every module returns a result dict with an `"error"` key rather than raising exceptions. Excel sheets render an error message card when a module fails; the PDF and pitch deck omit the affected section with a note. This means a broken FMP API key or a company not in EDGAR doesn't kill the entire run — it produces partial output with clear labels on what failed and why.
 
-**Three Sonnet calls for the education layer** — The education content (30 Excel cell comments, 12 slide notes, 12-section PDF guide, 40-term glossary) is generated in exactly 3 API calls, not one per feature. Each call returns structured JSON or text covering an entire category. This limits cost to ~$0.05 per education run while still producing contextually specific content (each comment references the company's actual metrics, not generic definitions).
+**Server-Sent Events for real-time streaming** — The web platform uses SSE to stream analysis progress to the browser. Each pipeline stage emits a named event with percentage and status text. A heartbeat fires every 15 seconds to keep the Vercel edge proxy from closing the idle connection. The frontend uses a `ReadableStream` reader (not `EventSource`) because the initial request is a POST with a JSON body.
+
+**Three Sonnet calls for the education layer** — The education content (30 Excel cell comments, 12 slide notes, 12-section PDF guide, 40-term glossary) is generated in exactly 3 API calls, not one per feature. Each call returns structured JSON or text covering an entire category. This limits cost to ~$0.05 per education run while still producing contextually specific content (each comment references the company's actual metrics, not generic definitions). All 3 calls run in parallel via `ThreadPoolExecutor`.
 
 ---
 
@@ -183,7 +244,7 @@ NEWS_API_KEY=your_newsapi_key_here
 
 This file is in `.gitignore` and will never be committed.
 
-### First Run
+### Commands
 
 ```bash
 # Free dry run — fetches all data, skips Claude API call
@@ -195,18 +256,24 @@ python3 main.py AAPL
 # Complete package: Excel + PDF + pitch deck
 python3 main.py AAPL --full
 
+# With education guide (adds 3 Sonnet calls, ~$0.05)
+python3 main.py AAPL --full --education --audience student
+
 # Standalone LBO model (no Claude required)
 python3 lbo/lbo_model.py AAPL --entry-multiple 8 --hold-years 5
 
 # Merger consequences model (no Claude required)
 python3 ma/ma_model.py MSFT AAPL --premium 30 --cash-pct 60
-```
 
-Outputs are saved to `reports/AAPL/` with timestamped filenames. `AAPL_latest.xlsx` always points to the most recent run.
+# Run the web interface locally
+cd web && flask run --port 5001
 
-### Running the Automation Layer
+# Deploy web interface to Vercel (sync + deploy)
+make deploy
 
-```bash
+# Sync pipeline files into web/ only (no Vercel deploy)
+cd web && bash sync_pipeline.sh
+
 # Morning briefing (run manually to test; normally scheduled 7am ET)
 python3 automation/morning_briefing.py
 
@@ -214,7 +281,7 @@ python3 automation/morning_briefing.py
 python3 automation/ic_memo.py AAPL --recommendation BUY --conviction HIGH
 ```
 
-See [docs/AUTOMATION.md](docs/AUTOMATION.md) for scheduling and phone notification setup.
+Outputs are saved to `reports/AAPL/` with timestamped filenames.
 
 ---
 
