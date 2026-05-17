@@ -428,7 +428,7 @@ function DashboardPage({ onAnalyzeTicker }) {
 }
 
 // ── AnalyzePage ───────────────────────────────────────────────────────────────
-function AnalyzePage({ prefilledTicker }) {
+function AnalyzePage({ prefilledTicker, isVercel }) {
   const [ticker,   setTicker]   = useState("");
   const [audience, setAudience] = useState("student");
   const [flags,    setFlags]    = useState(["--full"]);
@@ -472,7 +472,7 @@ function AnalyzePage({ prefilledTicker }) {
     { flag: "--full",      icon: ICONS.Excel,      label: "17-Sheet Excel",   sub: "Goldman-style workbook" },
     { flag: "--pdf",       icon: ICONS.PDF,        label: "10-Page PDF",      sub: "Equity research report" },
     { flag: "--pitch",     icon: ICONS.Powerpoint, label: "12-Slide Deck",    sub: "Pitch-ready PowerPoint" },
-    { flag: "--education", icon: ICONS.Education,  label: "Education Guide",  sub: "Annotated companion PDF" },
+    { flag: "--education", icon: ICONS.Education,  label: "Education Guide",  sub: isVercel ? "Available locally only" : "Annotated companion PDF", disabled: isVercel },
   ];
 
   return (
@@ -506,10 +506,12 @@ function AnalyzePage({ prefilledTicker }) {
               <label className="field-label">What you'll get</label>
               <div className="outcome-grid">
                 {outcomeOptions.map(o => {
-                  const sel = flags.includes(o.flag) || (isFull && o.flag !== "--full");
+                  const sel = !o.disabled && (flags.includes(o.flag) || (isFull && o.flag !== "--full"));
                   return (
-                    <div key={o.flag} className={`outcome-card ${sel ? "selected" : ""}`}
-                      onClick={() => toggleFlag(o.flag)}>
+                    <div key={o.flag}
+                      className={`outcome-card ${sel ? "selected" : ""} ${o.disabled ? "disabled" : ""}`}
+                      onClick={() => !o.disabled && toggleFlag(o.flag)}
+                      style={o.disabled ? { opacity: 0.45, cursor: "not-allowed" } : {}}>
                       <span className="outcome-card-icon">{o.icon({ size: 22 })}</span>
                       <div className="outcome-card-text">
                         <div className="outcome-card-label">{o.label}</div>
@@ -522,17 +524,19 @@ function AnalyzePage({ prefilledTicker }) {
               </div>
             </div>
 
-            <div>
-              <label className="field-label">Education Audience</label>
-              <div className="audience-toggle">
-                {["student", "professional"].map(a => (
-                  <button key={a} className={`audience-btn ${audience === a ? "active" : ""}`}
-                    onClick={() => setAudience(a)}>
-                    {a.charAt(0).toUpperCase() + a.slice(1)}
-                  </button>
-                ))}
+            {!isVercel && (
+              <div>
+                <label className="field-label">Education Audience</label>
+                <div className="audience-toggle">
+                  {["student", "professional"].map(a => (
+                    <button key={a} className={`audience-btn ${audience === a ? "active" : ""}`}
+                      onClick={() => setAudience(a)}>
+                      {a.charAt(0).toUpperCase() + a.slice(1)}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
 
             <div style={{ marginTop: "1.5rem" }}>
               <button className="btn btn-primary btn-run"
@@ -1245,6 +1249,11 @@ function Sidebar({ page, onNavigate }) {
 function App() {
   const [page, setPage] = useState("dashboard");
   const [prefilledTicker, setPrefilledTicker] = useState("");
+  const [isVercel, setIsVercel] = useState(false);
+
+  useEffect(() => {
+    api("/api/config").then(d => setIsVercel(!!d.is_vercel)).catch(() => {});
+  }, []);
 
   const handleAnalyzeTicker = useCallback((ticker) => {
     setPrefilledTicker(ticker);
@@ -1253,7 +1262,7 @@ function App() {
 
   const pages = {
     dashboard:     <DashboardPage onAnalyzeTicker={handleAnalyzeTicker} />,
-    analyze:       <AnalyzePage prefilledTicker={prefilledTicker} />,
+    analyze:       <AnalyzePage prefilledTicker={prefilledTicker} isVercel={isVercel} />,
     lbo:           <LBOPage />,
     ma:            <MAPage />,
     notifications: <NotificationsPage />,

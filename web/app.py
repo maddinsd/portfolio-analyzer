@@ -131,6 +131,11 @@ def logout():
     resp.delete_cookie("auth")
     return resp
 
+# ── Config ────────────────────────────────────────────────────────────────────
+@app.route("/api/config")
+def api_config():
+    return jsonify({"is_vercel": IS_VERCEL})
+
 # ── Quote ─────────────────────────────────────────────────────────────────────
 @app.route("/api/quote/<ticker>")
 @require_auth
@@ -245,7 +250,7 @@ def _analysis_thread(job_id: str, ticker: str, flags: list[str], audience: str):
 
         do_pitch = "--pitch" in flags or "--full" in flags
         do_pdf   = "--pdf"   in flags or "--full" in flags
-        do_edu   = "--education" in flags or "--full" in flags
+        do_edu   = ("--education" in flags or "--full" in flags) and not IS_VERCEL
         pitch_result = {"error": "not requested"}
 
         if do_pitch:
