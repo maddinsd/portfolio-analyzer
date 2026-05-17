@@ -929,7 +929,7 @@ function Sidebar({ page, onNavigate }) {
     <nav className="sidebar">
       <div className="sidebar-logo">
         <div className="logo-uc-mark">
-          <img src="/static/uc_logo.png" alt="UC" onError={(e) => e.target.style.display='none'} />
+          <img src="/assets/uc_logo.png" alt="UC" onError={(e) => e.target.style.display='none'} />
         </div>
         <div className="logo-text">
           <h2>Lindner Research</h2>

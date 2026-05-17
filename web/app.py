@@ -13,7 +13,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from flask import (Flask, Response, jsonify, make_response, redirect,
-                   render_template, request, send_file, stream_with_context)
+                   render_template, request, send_file, send_from_directory,
+                   stream_with_context)
 from flask_cors import CORS
 
 # ── Paths & environment ───────────────────────────────────────────────────────
@@ -45,6 +46,12 @@ def require_auth(f):
             return redirect("/login")
         return f(*args, **kwargs)
     return decorated
+
+# ── Assets (project-root assets/ dir) ────────────────────────────────────────
+@app.route("/assets/<path:filename>")
+def serve_assets(filename):
+    assets_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets")
+    return send_from_directory(assets_dir, filename)
 
 # ── Pages ─────────────────────────────────────────────────────────────────────
 @app.route("/")
