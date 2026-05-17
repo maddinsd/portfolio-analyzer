@@ -348,11 +348,32 @@ def _analysis_thread(job_id: str, ticker: str, flags: list[str], audience: str):
         ntfy_ok = False
         try:
             import requests as _req
-            tgt_str   = f"${tgt:,.0f}" if isinstance(tgt, (int, float)) else "N/A"
-            price_str = f"${price:,.2f}" if isinstance(price, (int, float)) else "N/A"
-            body_txt  = f"{rating} · Target {tgt_str} · Now {price_str}"
-            if dcf_str:
-                body_txt += f" · {dcf_str}"
+            info    = stats.get("info", {})
+            mktcap  = info.get("marketCap")
+            if mktcap and mktcap >= 1e12:
+                mktcap_str = f"${mktcap/1e12:.1f}T"
+            elif mktcap and mktcap >= 1e9:
+                mktcap_str = f"${mktcap/1e9:.0f}B"
+            elif mktcap:
+                mktcap_str = f"${mktcap/1e6:.0f}M"
+            else:
+                mktcap_str = None
+
+            line1 = f"{company_name} ({ticker})"
+            row2  = [rating.upper() if rating not in ("—", "") else None,
+                     f"Target ${tgt:,.0f}" if isinstance(tgt, (int, float)) else None,
+                     f"Now ${price:,.2f}" if isinstance(price, (int, float)) else None,
+                     f"MCap {mktcap_str}" if mktcap_str else None]
+            line2 = " · ".join(p for p in row2 if p)
+
+            _FILE_LABELS = [("01_", "Excel"), ("02_", "PDF"),
+                            ("03_", "Pitch Deck"), ("04_", "Education Guide")]
+            labels = [lbl for pfx, lbl in _FILE_LABELS
+                      if any(f.startswith(pfx) for f in files)]
+            line3 = ("Files: " + " · ".join(labels)) if labels else None
+            line4 = f"Saved to Desktop/reports/{ticker}/" if not IS_VERCEL else None
+
+            body_txt = "\n".join(l for l in [line1, line2, line3, line4] if l)
             ntfy_resp = _req.post(
                 "https://ntfy.sh/sam-madding-finance-alerts",
                 data=body_txt.encode(),
