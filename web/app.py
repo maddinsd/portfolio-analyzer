@@ -20,14 +20,18 @@ from flask import (Flask, Response, jsonify, make_response, redirect,
 from flask_cors import CORS
 
 # ── Paths & environment ───────────────────────────────────────────────────────
-PROJECT_ROOT = Path(__file__).parent.parent
+_this_dir    = Path(__file__).parent          # web/  (also the Vercel deploy root)
+PROJECT_ROOT = _this_dir.parent               # portfolio-analyzer/ (local only)
 IS_VERCEL    = os.environ.get("VERCEL") == "1"
 
 if not IS_VERCEL:
     load_dotenv(PROJECT_ROOT / ".env")
 
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+# On Vercel all pipeline .py files are copied into web/ (same dir as app.py).
+# Locally they live in PROJECT_ROOT. Insert both so imports work in either env.
+for _p in (str(_this_dir), str(PROJECT_ROOT)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 if IS_VERCEL:
     REPORTS_DIR = Path("/tmp/reports")
@@ -98,7 +102,8 @@ def require_auth(f):
 # ── Assets (project-root assets/ dir) ────────────────────────────────────────
 @app.route("/assets/<path:filename>")
 def serve_assets(filename):
-    assets_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets")
+    base = os.path.dirname(os.path.abspath(__file__))
+    assets_dir = os.path.join(base, "assets") if IS_VERCEL else os.path.join(base, "..", "assets")
     return send_from_directory(assets_dir, filename)
 
 # ── Pages ─────────────────────────────────────────────────────────────────────
