@@ -8,12 +8,62 @@ const api = (path, opts = {}) =>
   fetch(path, { credentials: "same-origin", ...opts })
     .then(r => r.json());
 
+// ============================================================
+// ICON SYSTEM — single source of truth
+// Heroicons v2 Outline (MIT) · 24px viewBox · stroke only
+// All: strokeWidth 1.75, strokeLinecap round, strokeLinejoin round
+// Color: currentColor (inherits from parent text color)
+// ============================================================
+const Icon = ({ size = 18, className = '', style, children }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.75"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+    style={style}
+    aria-hidden="true"
+  >
+    {children}
+  </svg>
+);
+
+const ICONS = {
+  // ── File types ────────────────────────────────────────────
+  Excel:       (p = {}) => <Icon {...p}><path d="M3 3h18v18H3V3zm6 0v18m6-18v18M3 9h18M3 15h18"/></Icon>,
+  PDF:         (p = {}) => <Icon {...p}><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></Icon>,
+  Powerpoint:  (p = {}) => <Icon {...p}><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M12 17v3m-4 0h8M7 13V9m4 4V7m4 6v-3"/></Icon>,
+  Education:   (p = {}) => <Icon {...p}><path d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></Icon>,
+  Markdown:    (p = {}) => <Icon {...p}><path d="M9 12h6m-6 4h4M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></Icon>,
+  File:        (p = {}) => <Icon {...p}><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/></Icon>,
+  FolderOpen:  (p = {}) => <Icon {...p}><path d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z"/></Icon>,
+  // ── Actions ───────────────────────────────────────────────
+  Download:    (p = {}) => <Icon {...p}><path d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/></Icon>,
+  Check:       (p = {}) => <Icon {...p}><path d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></Icon>,
+  CheckMark:   (p = {}) => <Icon {...p}><polyline points="20 6 9 17 4 12"/></Icon>,
+  ErrorX:      (p = {}) => <Icon {...p}><path d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></Icon>,
+  // ── Status / Alerts ───────────────────────────────────────
+  Bell:        (p = {}) => <Icon {...p}><path d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"/></Icon>,
+  TrendingUp:  (p = {}) => <Icon {...p}><path d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941"/></Icon>,
+  TrendingDown:(p = {}) => <Icon {...p}><path d="M2.25 6L9 12.75l4.286-4.286a11.948 11.948 0 014.306 6.43l.776 2.898m0 0l3.182-5.511m-3.182 5.51l-5.511-3.181"/></Icon>,
+  BarChart:    (p = {}) => <Icon {...p}><path d="M3 3v18h18M18 17V9M12 17V3M6 17v-6"/></Icon>,
+  ArrowUp:     (p = {}) => <Icon {...p}><path d="M12 19.5v-15m0 0l-6.75 6.75M12 4.5l6.75 6.75"/></Icon>,
+  ArrowDown:   (p = {}) => <Icon {...p}><path d="M12 4.5v15m0 0l6.75-6.75M12 19.5l-6.75-6.75"/></Icon>,
+  Phone:       (p = {}) => <Icon {...p}><path d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 8.25h3"/></Icon>,
+  ChartLine:   (p = {}) => <Icon {...p}><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></Icon>,
+};
+
 function fileIcon(name) {
-  if (name.endsWith(".xlsx")) return "📊";
-  if (name.endsWith(".pdf"))  return "📄";
-  if (name.endsWith(".pptx")) return "📑";
-  if (name.endsWith(".md"))   return "📝";
-  return "📁";
+  if (name.endsWith(".xlsx")) return ICONS.Excel({ size: 16 });
+  if (name.endsWith(".pdf"))  return ICONS.PDF({ size: 16 });
+  if (name.endsWith(".pptx")) return ICONS.Powerpoint({ size: 16 });
+  if (name.endsWith(".md"))   return ICONS.Markdown({ size: 16 });
+  return ICONS.File({ size: 16 });
 }
 function fileLabel(name) {
   if (name.includes("Excel"))      return "Excel";
@@ -149,14 +199,14 @@ function useQuote(ticker) {
 function QuotePreview({ ticker, quote, loading }) {
   if (!ticker) return null;
   if (loading)
-    return <div className="quote-preview loading">⟳ Looking up {ticker}…</div>;
+    return <div className="quote-preview loading"><span className="quote-preview-icon" style={{ opacity: 0.5 }}>{ICONS.ChartLine({ size: 14 })}</span> Validating {ticker}…</div>;
   if (!quote) return null;
   if (!quote.valid)
-    return <div className="quote-preview invalid">✗ {quote.error || "Ticker not found"}</div>;
+    return <div className="quote-preview invalid"><span className="quote-preview-icon">{ICONS.ErrorX({ size: 14 })}</span> {quote.error || "Ticker not found"}</div>;
   const sign = quote.change_pct >= 0 ? "+" : "";
   return (
     <div className="quote-preview valid">
-      <span>✓</span>
+      <span className="quote-preview-icon">{ICONS.CheckMark({ size: 14 })}</span>
       <span className="quote-name">{quote.name}</span>
       <span className="quote-price">${quote.price?.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
       <span className={`quote-change ${quote.change_pct >= 0 ? "up" : "down"}`}>
@@ -258,7 +308,7 @@ function ProgressPanel({ jobId, onDone }) {
         {steps.map((s, i) => (
           <div key={i} className={`progress-step ${s.status}`}>
             <div className="step-icon">
-              {s.status === "done"    ? <div className="step-icon-done">✓</div> :
+              {s.status === "done"    ? <div className="step-icon-done">{ICONS.CheckMark({ size: 12 })}</div> :
                s.status === "running" ? <div className="step-icon-active" /> :
                <div className="step-icon-circle" />}
             </div>
@@ -280,7 +330,7 @@ function ResultsPanel({ result, onReset }) {
   return (
     <div className="results-panel">
       <div className="results-header">
-        <span className="results-tick">✓</span>
+        <span className="results-tick">{ICONS.Check({ size: 20 })}</span>
         <div>
           <div className="results-title">{ticker} Analysis Complete</div>
           <div className="results-sub">{company}</div>
@@ -308,11 +358,11 @@ function ResultsPanel({ result, onReset }) {
           <a key={f} href={`/api/download/${ticker}/${f}`} className="file-btn" download>
             <span className="file-icon">{fileIcon(f)}</span>
             <span className="file-name">{fileLabel(f)}</span>
-            <span>↓</span>
+            <span className="file-dl">{ICONS.Download({ size: 13 })}</span>
           </a>
         ))}
       </div>
-      {stats.dcf && <div className="phone-sent mt-3">📱 Notification sent · {stats.dcf}</div>}
+      {stats.dcf && <div className="phone-sent mt-3">{ICONS.Phone({ size: 14 })} Notification sent · {stats.dcf}</div>}
     </div>
   );
 }
@@ -364,7 +414,7 @@ function DashboardPage({ onAnalyzeTicker }) {
           : quotes.length === 0
           ? (
             <div className="empty-state" style={{ gridColumn: "1/-1" }}>
-              <div className="empty-icon">📈</div>
+              <div className="empty-icon">{ICONS.ChartLine({ size: 40 })}</div>
               <h3>Watchlist is empty</h3>
               <p>Add tickers on the Notifications page to see live prices here.</p>
             </div>
@@ -419,10 +469,10 @@ function AnalyzePage({ prefilledTicker }) {
   const isFull = flags.includes("--full");
 
   const outcomeOptions = [
-    { flag: "--full",      icon: "📊", label: "17-Sheet Excel",   sub: "Goldman-style workbook" },
-    { flag: "--pdf",       icon: "📄", label: "10-Page PDF",      sub: "Equity research report" },
-    { flag: "--pitch",     icon: "🎯", label: "12-Slide Deck",    sub: "Pitch-ready PowerPoint" },
-    { flag: "--education", icon: "📚", label: "Education Guide",  sub: "Annotated companion PDF" },
+    { flag: "--full",      icon: ICONS.Excel,      label: "17-Sheet Excel",   sub: "Goldman-style workbook" },
+    { flag: "--pdf",       icon: ICONS.PDF,        label: "10-Page PDF",      sub: "Equity research report" },
+    { flag: "--pitch",     icon: ICONS.Powerpoint, label: "12-Slide Deck",    sub: "Pitch-ready PowerPoint" },
+    { flag: "--education", icon: ICONS.Education,  label: "Education Guide",  sub: "Annotated companion PDF" },
   ];
 
   return (
@@ -460,12 +510,12 @@ function AnalyzePage({ prefilledTicker }) {
                   return (
                     <div key={o.flag} className={`outcome-card ${sel ? "selected" : ""}`}
                       onClick={() => toggleFlag(o.flag)}>
-                      <span className="outcome-card-icon">{o.icon}</span>
+                      <span className="outcome-card-icon">{o.icon({ size: 22 })}</span>
                       <div className="outcome-card-text">
                         <div className="outcome-card-label">{o.label}</div>
                         <div className="outcome-card-sub">{o.sub}</div>
                       </div>
-                      <div className="outcome-check">{sel ? "✓" : ""}</div>
+                      <div className="outcome-check">{sel ? ICONS.CheckMark({ size: 14 }) : null}</div>
                     </div>
                   );
                 })}
@@ -650,7 +700,7 @@ function LBOPage() {
         {phase === "results" && result && (
           <div className="results-panel">
             <div className="results-header">
-              <span className="results-tick">✓</span>
+              <span className="results-tick">{ICONS.Check({ size: 20 })}</span>
               <div>
                 <div className="results-title">LBO Model — {result.ticker}</div>
                 <div className="results-sub">9-tab Excel workbook · IRR/MOIC · Sensitivity tables</div>
@@ -659,9 +709,9 @@ function LBOPage() {
             </div>
             <div className="files-grid">
               <a href={`/api/download/lbo/${result.file}`} className="file-btn" download>
-                <span className="file-icon">📊</span>
+                <span className="file-icon">{ICONS.Excel({ size: 16 })}</span>
                 <span className="file-name">{result.file}</span>
-                <span>↓</span>
+                <span className="file-dl">{ICONS.Download({ size: 13 })}</span>
               </a>
             </div>
           </div>
@@ -808,7 +858,7 @@ function MAPage() {
         {phase === "results" && result && (
           <div className="results-panel">
             <div className="results-header">
-              <span className="results-tick">✓</span>
+              <span className="results-tick">{ICONS.Check({ size: 20 })}</span>
               <div>
                 <div className="results-title">{result.acquirer} acquires {result.target}</div>
                 <div className="results-sub">8-tab merger consequences model · EPS accretion/dilution</div>
@@ -817,9 +867,9 @@ function MAPage() {
             </div>
             <div className="files-grid">
               <a href={`/api/download/ma/${result.file}`} className="file-btn" download>
-                <span className="file-icon">📊</span>
+                <span className="file-icon">{ICONS.Excel({ size: 16 })}</span>
                 <span className="file-name">{result.file}</span>
-                <span>↓</span>
+                <span className="file-dl">{ICONS.Download({ size: 13 })}</span>
               </a>
             </div>
           </div>
@@ -894,13 +944,13 @@ function NotificationsPage() {
   ];
 
   function alertIcon(type) {
-    if (!type) return "🔔";
-    if (type.includes("price"))    return "📈";
-    if (type.includes("analysis")) return "📊";
-    if (type.includes("brief"))    return "🔔";
-    if (type.includes("upgrade"))  return "⬆️";
-    if (type.includes("downgrade"))return "⬇️";
-    return "🔔";
+    if (!type)                      return ICONS.Bell({ size: 15 });
+    if (type.includes("price"))     return ICONS.TrendingUp({ size: 15 });
+    if (type.includes("analysis"))  return ICONS.BarChart({ size: 15 });
+    if (type.includes("brief"))     return ICONS.Bell({ size: 15 });
+    if (type.includes("upgrade"))   return ICONS.ArrowUp({ size: 15 });
+    if (type.includes("downgrade")) return ICONS.ArrowDown({ size: 15 });
+    return ICONS.Bell({ size: 15 });
   }
 
   return (
@@ -1007,10 +1057,10 @@ function NotificationsPage() {
 
         <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
           <button className="btn btn-primary" onClick={save} disabled={saving}>
-            {saving ? "Saving…" : saved ? "✓ Saved" : "Save Settings"}
+            {saving ? "Saving…" : saved ? "Saved" : "Save Settings"}
           </button>
           <button className="btn btn-secondary" onClick={testNotify} disabled={testing}>
-            {testing ? "Sending…" : "📱 Test Notification"}
+            {testing ? "Sending…" : <>{ICONS.Phone({ size: 14 })} Test Notification</>}
           </button>
           <span className="text-dim text-sm">ntfy.sh/sam-madding-finance-alerts</span>
         </div>
@@ -1062,7 +1112,7 @@ function HistoryPage() {
 
       {history !== null && filtered.length === 0 && (
         <div className="empty-state">
-          <div className="empty-icon">📂</div>
+          <div className="empty-icon">{ICONS.FolderOpen({ size: 40 })}</div>
           <h3>{search ? "No match" : "No analyses yet"}</h3>
           <p>{search ? `No analyses for "${search.toUpperCase()}"` : "Run your first analysis to see it here."}</p>
         </div>

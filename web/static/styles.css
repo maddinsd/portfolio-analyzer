@@ -379,6 +379,7 @@ body {
   color: var(--text-secondary);
 }
 
+.quote-preview-icon { display: flex; align-items: center; flex-shrink: 0; }
 .quote-name  { font-weight: 600; color: var(--text-primary); }
 .quote-price { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text-primary); }
 .quote-change { font-size: 13px; }
@@ -542,8 +543,6 @@ body {
   align-items: center;
   justify-content: center;
   color: white;
-  font-size: 10px;
-  font-weight: 700;
 }
 
 .step-content { flex: 1; }
@@ -582,8 +581,6 @@ body {
   align-items: center;
   justify-content: center;
   color: white;
-  font-size: 15px;
-  font-weight: 700;
   margin-top: 2px;
 }
 
@@ -664,7 +661,8 @@ body {
   box-shadow: var(--shadow-sm);
 }
 
-.file-icon { font-size: 18px; }
+.file-icon { display: flex; align-items: center; color: var(--text-secondary); }
+.file-dl   { display: flex; align-items: center; color: var(--text-tertiary); margin-left: auto; }
 .file-name { flex: 1; font-size: 13px; color: var(--text-secondary); }
 
 .phone-sent {
@@ -965,9 +963,12 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .empty-icon {
-  font-size: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   margin-bottom: 16px;
-  opacity: 0.5;
+  opacity: 0.45;
+  color: var(--text-secondary);
 }
 
 .empty-state h3 {
@@ -1355,9 +1356,10 @@ input[type="range"]::-moz-range-thumb {
 .alert-row:last-child { border-bottom: none; }
 
 .alert-icon {
-  font-size: 16px;
+  display: flex;
+  align-items: center;
   min-width: 22px;
-  text-align: center;
+  color: var(--text-secondary);
 }
 
 .alert-ticker {
@@ -1408,7 +1410,7 @@ input[type="range"]::-moz-range-thumb {
   background: rgba(0,51,102,0.04);
 }
 
-.outcome-card-icon { font-size: 20px; }
+.outcome-card-icon { display: flex; align-items: center; color: var(--navy); }
 
 .outcome-card-text { flex: 1; }
 
