@@ -125,11 +125,11 @@ function ProgressPanel({ jobId, onDone }) {
       <div className="progress-steps">
         {steps.map((s, i) => (
           <div key={i} className={`progress-step ${s.status}`}>
-            <span className="step-icon">
-              {s.status === "done"    ? "✓" :
-               s.status === "running" ? <span className="spinner" /> :
-               "○"}
-            </span>
+            <div className="step-icon">
+              {s.status === "done"    ? <div className="step-icon-done">✓</div> :
+               s.status === "running" ? <div className="spinner" /> :
+               <div className="step-icon-circle" />}
+            </div>
             <div className="step-content">
               <div>{s.message}</div>
               {s.detail && <div className="step-detail">{s.detail}</div>}
@@ -908,7 +908,9 @@ function Sidebar({ page, onNavigate }) {
   return (
     <nav className="sidebar">
       <div className="sidebar-logo">
-        <div className="logo-shield" />
+        <div className="logo-uc-mark">
+          <img src="/static/uc_logo.png" alt="UC" onError={(e) => e.target.style.display='none'} />
+        </div>
         <div className="logo-text">
           <h2>Lindner Research</h2>
           <span>Equity Platform</span>
@@ -927,8 +929,11 @@ function Sidebar({ page, onNavigate }) {
         ))}
       </div>
       <div className="sidebar-footer">
-        <div>Samuel Madding</div>
-        <a href="/logout">Sign out</a>
+        <div className="sidebar-avatar">SM</div>
+        <div className="sidebar-user">
+          <div className="sidebar-user-name">Samuel Madding</div>
+          <a href="/logout">Sign out</a>
+        </div>
       </div>
     </nav>
   );
