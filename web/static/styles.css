@@ -61,6 +61,7 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  border-top: 3px solid var(--red);
 }
 
 .sidebar-logo {
@@ -72,28 +73,17 @@ body {
 }
 
 .logo-uc-mark {
-  width: 32px;
-  height: 32px;
-  min-width: 32px;
-  border-radius: 6px;
-  overflow: hidden;
-  background: rgba(255,255,255,0.15);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .logo-uc-mark img {
-  width: 100%;
-  height: 100%;
+  height: 32px;
+  width: auto;
   object-fit: contain;
   filter: brightness(0) invert(1);
   opacity: 0.9;
-}
-
-/* fallback shield for when image doesn't load */
-.logo-shield {
-  display: none;
 }
 
 .logo-text h2 {
@@ -156,9 +146,11 @@ body {
 }
 
 .nav-icon {
-  font-size: 16px;
   min-width: 20px;
-  text-align: center;
+  width: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   opacity: 0.9;
 }
 
