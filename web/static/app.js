@@ -325,7 +325,7 @@ function ProgressPanel({ jobId, onDone }) {
 
 // ── ResultsPanel component ────────────────────────────────────────────────────
 function ResultsPanel({ result, onReset, isVercel }) {
-  const { ticker, company, stats = {}, files = [], job_id } = result;
+  const { ticker, company, stats = {}, files = [], job_id, ntfy_ok } = result;
   const ratingClass = stats.rating === "Buy" ? "buy" : stats.rating === "Sell" ? "sell" : "";
 
   const [eduPhase, setEduPhase] = useState("idle"); // idle | running | done | error
@@ -338,6 +338,10 @@ function ResultsPanel({ result, onReset, isVercel }) {
     setEduPct(0);
     setEduError(null);
     let finished = false;
+    // Abort after 300s (matches Vercel maxDuration); heartbeats every 15s keep
+    // the connection alive so the edge proxy does not close it first.
+    const ctrl = new AbortController();
+    const abort_timer = setTimeout(() => ctrl.abort(), 300000);
     try {
       // /api/education returns an SSE stream directly (one request, same lambda
       // instance as the thread — no cross-instance state loss on Vercel).
@@ -345,6 +349,7 @@ function ResultsPanel({ result, onReset, isVercel }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
+        signal: ctrl.signal,
         body: JSON.stringify({ ticker, audience: "student", job_id }),
       });
       if (!resp.ok) {
@@ -374,12 +379,18 @@ function ResultsPanel({ result, onReset, isVercel }) {
         }
       }
       if (!finished) {
-        setEduError("Generation timed out (>5 min). Try again — 6 Sonnet calls run in parallel and usually finish in ~90s.");
+        setEduError("Stream closed before completion — generation may still be running. Wait 30s and try again.");
         setEduPhase("error");
       }
-    } catch {
-      setEduError("Connection failed during generation.");
+    } catch (err) {
+      if (err && err.name === "AbortError") {
+        setEduError("Timed out after 5 min. The 6 parallel Sonnet calls usually finish in ~90s — try again.");
+      } else {
+        setEduError("Connection lost during generation. Try again.");
+      }
       setEduPhase("error");
+    } finally {
+      clearTimeout(abort_timer);
     }
   };
 
@@ -418,7 +429,7 @@ function ResultsPanel({ result, onReset, isVercel }) {
           </a>
         ))}
       </div>
-      {stats.dcf && <div className="phone-sent mt-3">{ICONS.Phone({ size: 14 })} Notification sent · {stats.dcf}</div>}
+      {stats.dcf && <div className="phone-sent mt-3">{ICONS.Phone({ size: 14 })} {ntfy_ok ? "Notification sent" : "Notification failed"} · {stats.dcf}</div>}
 
       {isVercel && (
         <div>
@@ -986,6 +997,7 @@ function NotificationsPage() {
   const [saving,    setSaving]    = useState(false);
   const [testing,   setTesting]   = useState(false);
   const [saved,     setSaved]     = useState(false);
+  const [ntfyResult, setNtfyResult] = useState(null);
   const [alerts,    setAlerts]    = useState(null);
   const { quote, loading: qLoading } = useQuote(newTicker);
 
@@ -1027,7 +1039,13 @@ function NotificationsPage() {
 
   const testNotify = async () => {
     setTesting(true);
-    await api("/api/notify/test", { method: "POST" });
+    setNtfyResult(null);
+    try {
+      const r = await api("/api/notify/test", { method: "POST" });
+      setNtfyResult(r);
+    } catch (e) {
+      setNtfyResult({ ok: false, error: String(e) });
+    }
     setTesting(false);
   };
 
@@ -1163,6 +1181,13 @@ function NotificationsPage() {
             {testing ? "Sending…" : <>{ICONS.Phone({ size: 14 })} Test Notification</>}
           </button>
           <span className="text-dim text-sm">ntfy.sh/sam-madding-finance-alerts</span>
+          {ntfyResult && (
+            <span style={{ fontSize: "0.78rem", color: ntfyResult.ok ? "#16a34a" : "#dc2626", marginLeft: "0.5rem" }}>
+              {ntfyResult.ok
+                ? `✓ Sent (HTTP ${ntfyResult.status_code}) — check your phone`
+                : `✗ Failed (HTTP ${ntfyResult.status_code || "?"}) — ${ntfyResult.error || ntfyResult.body || "unknown error"}`}
+            </span>
+          )}
         </div>
       </div>
     </div>

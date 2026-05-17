@@ -344,6 +344,30 @@ def _analysis_thread(job_id: str, ticker: str, flags: list[str], audience: str):
         tgt    = analyst_cov_result.get("mean_target")            if not analyst_cov_result.get("error") else None
         price  = stats.get("current_price")
 
+        # Send push notification via ntfy.sh
+        ntfy_ok = False
+        try:
+            import requests as _req
+            tgt_str   = f"${tgt:,.0f}" if isinstance(tgt, (int, float)) else "N/A"
+            price_str = f"${price:,.2f}" if isinstance(price, (int, float)) else "N/A"
+            body_txt  = f"{rating} · Target {tgt_str} · Now {price_str}"
+            if dcf_str:
+                body_txt += f" · {dcf_str}"
+            ntfy_resp = _req.post(
+                "https://ntfy.sh/sam-madding-finance-alerts",
+                data=body_txt.encode(),
+                headers={
+                    "Title": f"{ticker} Analysis Complete",
+                    "Priority": "default",
+                    "Tags": "chart_with_upwards_trend",
+                },
+                timeout=10,
+            )
+            ntfy_ok = ntfy_resp.status_code == 200
+            print(f"[ntfy] {ticker} push HTTP {ntfy_resp.status_code}: {ntfy_resp.text[:120]}", file=sys.stderr)
+        except Exception as _e:
+            print(f"[ntfy] {ticker} push FAILED: {_e}", file=sys.stderr)
+
         emit("Analysis complete!", 100)
         q.put({
             "done":    True,
@@ -351,6 +375,7 @@ def _analysis_thread(job_id: str, ticker: str, flags: list[str], audience: str):
             "ticker":  ticker,
             "company": company_name,
             "files":   files,
+            "ntfy_ok": ntfy_ok,
             "stats": {
                 "rating": rating,
                 "target": f"${tgt:,.0f}" if isinstance(tgt, (int, float)) else "—",
@@ -556,14 +581,19 @@ def api_education():
     ).start()
 
     def generate():
+        import time as _time
+        last_hb = _time.time()
         while True:
             try:
-                msg = edu_queue.get(timeout=120)
+                msg = edu_queue.get(timeout=5)
                 yield f"data: {json.dumps(msg)}\n\n"
+                last_hb = _time.time()
                 if msg.get("done") or msg.get("error"):
                     break
             except queue.Empty:
-                yield 'data: {"heartbeat":true}\n\n'
+                if _time.time() - last_hb >= 15:
+                    yield 'data: {"heartbeat":true}\n\n'
+                    last_hb = _time.time()
 
     return Response(
         stream_with_context(generate()),
@@ -576,19 +606,24 @@ def api_education():
 @require_auth
 def api_progress(job_id):
     def generate():
+        import time as _time
         job = jobs.get(job_id)
         q = job["queue"] if job else None
         if not q:
             yield f"data: {json.dumps({'error': 'job not found'})}\n\n"
             return
+        last_hb = _time.time()
         while True:
             try:
-                msg = q.get(timeout=120)
+                msg = q.get(timeout=5)
                 yield f"data: {json.dumps(msg)}\n\n"
+                last_hb = _time.time()
                 if msg.get("done") or msg.get("error"):
                     break
             except queue.Empty:
-                yield 'data: {"heartbeat":true}\n\n'
+                if _time.time() - last_hb >= 15:
+                    yield 'data: {"heartbeat":true}\n\n'
+                    last_hb = _time.time()
     return Response(
         stream_with_context(generate()),
         mimetype="text/event-stream",
@@ -758,14 +793,17 @@ def _extract_rating(ticker_dir: Path):
 def api_notify_test():
     try:
         import requests as req
-        req.post(
+        resp = req.post(
             "https://ntfy.sh/sam-madding-finance-alerts",
             data="Test notification from Lindner Research Platform".encode(),
             headers={"Title": "Platform Test", "Priority": "default", "Tags": "white_check_mark"},
             timeout=10,
         )
-        return jsonify({"ok": True})
+        ok = resp.status_code == 200
+        print(f"[ntfy] test push HTTP {resp.status_code}: {resp.text[:120]}", file=sys.stderr)
+        return jsonify({"ok": ok, "status_code": resp.status_code, "body": resp.text[:200]})
     except Exception as e:
+        print(f"[ntfy] test push FAILED: {e}", file=sys.stderr)
         return jsonify({"ok": False, "error": str(e)}), 500
 
 if __name__ == "__main__":
