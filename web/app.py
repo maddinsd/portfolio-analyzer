@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 import os
 import queue
+import re
 import sys
 import threading
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
@@ -408,16 +410,27 @@ def api_download_ma(filename):
 @require_auth
 def api_history():
     results = []
+    NUMBERED = ("01_", "02_", "03_", "04_", "05_")
     if REPORTS_DIR.exists():
         for ticker_dir in sorted(REPORTS_DIR.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
             if not ticker_dir.is_dir():
                 continue
-            files = sorted(f.name for f in ticker_dir.iterdir() if not f.name.startswith("."))
-            mtime = ticker_dir.stat().st_mtime
+            numbered = sorted(
+                f.name for f in ticker_dir.iterdir()
+                if not f.name.startswith(".") and f.name[:3] in NUMBERED
+            )
+            if not numbered:
+                continue
+            mtimes = [ticker_dir.stat().st_mtime] + [
+                (ticker_dir / f).stat().st_mtime for f in numbered
+            ]
+            rating, target = _extract_rating(ticker_dir)
             results.append({
                 "ticker":    ticker_dir.name,
-                "files":     files,
-                "timestamp": mtime,
+                "files":     numbered,
+                "timestamp": max(mtimes),
+                "rating":    rating,
+                "target":    target,
             })
     return jsonify(results)
 
@@ -435,6 +448,80 @@ def api_watchlist_post():
     data = request.get_json() or {}
     WATCHLIST.write_text(json.dumps(data, indent=2))
     return jsonify({"ok": True})
+
+# ── Watchlist live quotes ─────────────────────────────────────────────────────
+@app.route("/api/watchlist/quotes")
+@require_auth
+def api_watchlist_quotes():
+    if WATCHLIST.exists():
+        wl = json.loads(WATCHLIST.read_text())
+    else:
+        wl = {}
+    tickers = wl.get("tickers", [])
+
+    def fetch_one(ticker):
+        try:
+            import yfinance as yf
+            t    = yf.Ticker(ticker)
+            info = t.info
+            hist = t.history(period="7d")
+            sparkline = [round(float(p), 2) for p in hist["Close"].tolist()] if not hist.empty else []
+            price = info.get("currentPrice") or info.get("regularMarketPrice")
+            ticker_dir = REPORTS_DIR / ticker
+            has_analysis = ticker_dir.exists() and any(
+                f.startswith("01_") for f in os.listdir(str(ticker_dir))
+                if os.path.isfile(str(ticker_dir / f))
+            )
+            return {
+                "ticker":        ticker,
+                "name":          info.get("shortName") or info.get("longName") or ticker,
+                "price":         round(float(price), 2) if price else None,
+                "change_pct":    round(float(info.get("regularMarketChangePercent", 0)), 2),
+                "change":        round(float(info.get("regularMarketChange", 0)), 2),
+                "market_cap":    info.get("marketCap"),
+                "sparkline":     sparkline,
+                "last_analysis": {"has_analysis": has_analysis},
+            }
+        except Exception as e:
+            return {"ticker": ticker, "error": str(e), "sparkline": []}
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        results = list(ex.map(fetch_one, tickers))
+    return jsonify({"quotes": results, "timestamp": time.time()})
+
+
+# ── Recent alerts ─────────────────────────────────────────────────────────────
+@app.route("/api/alerts/recent")
+@require_auth
+def api_alerts_recent():
+    cache_file = PROJECT_ROOT / "automation" / ".alert_cache.json"
+    if not cache_file.exists():
+        return jsonify({"alerts": [], "message": "No alerts yet — your watchlist is being monitored"})
+    try:
+        data = json.loads(cache_file.read_text())
+        alerts = (data if isinstance(data, list) else list(data.values()))[-10:]
+        return jsonify({"alerts": alerts})
+    except Exception as e:
+        return jsonify({"alerts": [], "error": str(e)})
+
+
+def _extract_rating(ticker_dir: Path):
+    """Pull rating and price target from the analysis markdown if present."""
+    md_files = sorted(ticker_dir.glob("05_*.md"))
+    if not md_files:
+        return None, None
+    try:
+        content = md_files[0].read_text(encoding="utf-8", errors="ignore")
+        m = re.search(r"(?:consensus|rating|recommendation)[^:\n]*:\s*\**(buy|sell|hold)\**", content, re.IGNORECASE)
+        if not m:
+            m = re.search(r"\*\*(BUY|SELL|HOLD)\*\*", content)
+        rating = m.group(1).capitalize() if m else None
+        t = re.search(r"(?:price target|target)[^:$\n]*\$\s*([\d,]+(?:\.\d+)?)", content, re.IGNORECASE)
+        target = f"${t.group(1)}" if t else None
+        return rating, target
+    except Exception:
+        return None, None
+
 
 # ── Test notification ─────────────────────────────────────────────────────────
 @app.route("/api/notify/test", methods=["POST"])

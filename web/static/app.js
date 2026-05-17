@@ -16,15 +16,111 @@ function fileIcon(name) {
   return "📁";
 }
 function fileLabel(name) {
-  if (name.includes("Excel"))      return "Excel Report";
-  if (name.includes("Research"))   return "Research PDF";
-  if (name.includes("Pitch"))      return "Pitch Deck";
-  if (name.includes("Education"))  return "Education Guide";
-  if (name.includes("Analysis"))   return "Analysis Notes";
-  return name;
+  if (name.includes("Excel"))      return "Excel";
+  if (name.includes("Research"))   return "PDF";
+  if (name.includes("Pitch"))      return "Deck";
+  if (name.includes("Education"))  return "Guide";
+  if (name.includes("Analysis"))   return "Notes";
+  return name.replace(/^\d{2}_[A-Z]+_/, "").replace(/\.[^.]+$/, "");
 }
 function fmtDate(ts) {
-  return new Date(ts * 1000).toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric" });
+  return new Date(ts * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+function fmtDateTime(ts) {
+  const d = new Date(ts * 1000);
+  const today = new Date();
+  const isToday = d.toDateString() === today.toDateString();
+  const time = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  return isToday ? `Today ${time}` : `${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })} ${time}`;
+}
+function isMarketOpen() {
+  const now = new Date();
+  const day = now.getUTCDay(); // 0=Sun, 6=Sat
+  if (day === 0 || day === 6) return false;
+  const h = now.getUTCHours(), m = now.getUTCMinutes();
+  const mins = h * 60 + m;
+  return mins >= 13 * 60 + 30 && mins < 20 * 60; // 9:30am–4pm ET (EDT offset)
+}
+
+// ── Sparkline SVG ─────────────────────────────────────────────────────────────
+function Sparkline({ prices, width = 64, height = 30 }) {
+  if (!prices || prices.length < 2) return <div style={{ width, height }} />;
+  const min = Math.min(...prices), max = Math.max(...prices);
+  const range = max - min || 1;
+  const pad = 2;
+  const pts = prices.map((p, i) => [
+    (i / (prices.length - 1)) * (width - pad * 2) + pad,
+    height - pad - ((p - min) / range) * (height - pad * 2),
+  ]);
+  let d = `M ${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}`;
+  for (let i = 1; i < pts.length; i++) {
+    const cpx = ((pts[i - 1][0] + pts[i][0]) / 2).toFixed(1);
+    d += ` C ${cpx},${pts[i-1][1].toFixed(1)} ${cpx},${pts[i][1].toFixed(1)} ${pts[i][0].toFixed(1)},${pts[i][1].toFixed(1)}`;
+  }
+  const isUp = prices[prices.length - 1] >= prices[0];
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{ overflow: "visible", flexShrink: 0 }}>
+      <path d={d} fill="none" stroke={isUp ? "#34C759" : "#FF3B30"} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+// ── Skeleton card ─────────────────────────────────────────────────────────────
+function SkeletonCard() {
+  return (
+    <div className="ticker-card skeleton-card">
+      <div className="skeleton skeleton-ticker" />
+      <div className="skeleton skeleton-name" />
+      <div className="ticker-card-body" style={{ marginTop: 8 }}>
+        <div className="skeleton skeleton-price" />
+        <div style={{ width: 64, height: 30 }} />
+      </div>
+      <div className="skeleton skeleton-change" />
+    </div>
+  );
+}
+
+// ── Ticker card ───────────────────────────────────────────────────────────────
+function TickerCard({ quote, onAnalyze }) {
+  if (quote.error) {
+    return (
+      <div className="ticker-card ticker-card-error">
+        <div className="ticker-symbol">{quote.ticker}</div>
+        <div className="ticker-error" style={{ fontSize: 22, color: "var(--text-tertiary)", marginTop: 8 }}>—</div>
+        <div className="ticker-name" style={{ fontSize: 11 }}>Data unavailable</div>
+      </div>
+    );
+  }
+  const pct = quote.change_pct ?? 0;
+  const changeClass = pct > 0.05 ? "up" : pct < -0.05 ? "down" : "flat";
+  const sign = pct > 0 ? "▲ +" : pct < 0 ? "▼ " : "";
+  return (
+    <div className="ticker-card">
+      <div className="ticker-card-header">
+        <div style={{ minWidth: 0 }}>
+          <div className="ticker-symbol">{quote.ticker}</div>
+          <div className="ticker-name">{quote.name}</div>
+        </div>
+        {quote.last_analysis?.has_analysis && (
+          <div className="analysis-dot" title="Prior analysis on file" />
+        )}
+      </div>
+      <div className="ticker-card-body">
+        <div className="ticker-price">
+          {quote.price != null
+            ? `$${quote.price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+            : "—"}
+        </div>
+        <Sparkline prices={quote.sparkline} />
+      </div>
+      <div className={`ticker-change ${changeClass}`}>
+        {quote.price != null ? `${sign}${Math.abs(pct).toFixed(2)}%` : "—"}
+      </div>
+      <button className="ticker-analyze-btn" onClick={() => onAnalyze(quote.ticker)}>
+        Analyze →
+      </button>
+    </div>
+  );
 }
 
 // ── Ticker validation hook ────────────────────────────────────────────────────
@@ -74,24 +170,55 @@ function QuotePreview({ ticker, quote, loading }) {
 // ── ProgressPanel component ───────────────────────────────────────────────────
 function ProgressPanel({ jobId, onDone }) {
   const [steps, setSteps] = useState([]);
-  const [pct, setPct]     = useState(0);
+  const [pct, setPct] = useState(0);
+  const [displayPct, setDisplayPct] = useState(0);
   const [error, setError] = useState(null);
+  const [elapsed, setElapsed] = useState(0);
   const esRef = useRef(null);
+  const displayPctRef = useRef(0);
+  const startRef = useRef(Date.now());
+  const animRef = useRef(null);
+  const timerRef = useRef(null);
+
+  // Animate percentage counter
+  useEffect(() => {
+    const from = displayPctRef.current;
+    const to = pct;
+    if (from === to) return;
+    cancelAnimationFrame(animRef.current);
+    const start = performance.now();
+    const duration = 450;
+    function tick(now) {
+      const t = Math.min((now - start) / duration, 1);
+      const eased = 1 - Math.pow(1 - t, 3);
+      const val = Math.round(from + (to - from) * eased);
+      displayPctRef.current = val;
+      setDisplayPct(val);
+      if (t < 1) animRef.current = requestAnimationFrame(tick);
+      else displayPctRef.current = to;
+    }
+    animRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(animRef.current);
+  }, [pct]);
+
+  // Elapsed timer
+  useEffect(() => {
+    if (!jobId) return;
+    startRef.current = Date.now();
+    timerRef.current = setInterval(() => {
+      setElapsed(Math.round((Date.now() - startRef.current) / 1000));
+    }, 1000);
+    return () => clearInterval(timerRef.current);
+  }, [jobId]);
 
   useEffect(() => {
     if (!jobId) return;
     const es = new EventSource(`/api/progress/${jobId}`);
     esRef.current = es;
-
     es.onmessage = (e) => {
       const msg = JSON.parse(e.data);
       if (msg.heartbeat) return;
-
-      if (msg.error) {
-        setError(msg.error);
-        es.close();
-        return;
-      }
+      if (msg.error) { setError(msg.error); es.close(); return; }
       if (msg.percent !== undefined) {
         setPct(msg.percent);
         setSteps(prev => {
@@ -102,7 +229,9 @@ function ProgressPanel({ jobId, onDone }) {
         });
       }
       if (msg.done) {
+        setPct(100);
         setSteps(prev => prev.map(s => ({ ...s, status: "done" })));
+        clearInterval(timerRef.current);
         es.close();
         onDone(msg);
       }
@@ -117,7 +246,10 @@ function ProgressPanel({ jobId, onDone }) {
     <div className="progress-panel">
       <div className="progress-header">
         <span className="progress-title">Running analysis…</span>
-        <span className="progress-pct">{pct}%</span>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+          {elapsed > 0 && <span className="progress-elapsed">{elapsed}s</span>}
+          <span className="progress-pct">{displayPct}%</span>
+        </div>
       </div>
       <div className="progress-bar-track">
         <div className="progress-bar-fill" style={{ width: `${pct}%` }} />
@@ -127,7 +259,7 @@ function ProgressPanel({ jobId, onDone }) {
           <div key={i} className={`progress-step ${s.status}`}>
             <div className="step-icon">
               {s.status === "done"    ? <div className="step-icon-done">✓</div> :
-               s.status === "running" ? <div className="spinner" /> :
+               s.status === "running" ? <div className="step-icon-active" /> :
                <div className="step-icon-circle" />}
             </div>
             <div className="step-content">
@@ -185,16 +317,81 @@ function ResultsPanel({ result, onReset }) {
   );
 }
 
+// ── DashboardPage ─────────────────────────────────────────────────────────────
+function DashboardPage({ onAnalyzeTicker }) {
+  const [quotes, setQuotes] = useState(null);
+  const [lastUpdated, setLastUpdated] = useState(null);
+
+  const fetchQuotes = useCallback(async () => {
+    try {
+      const data = await api("/api/watchlist/quotes");
+      if (data.quotes) { setQuotes(data.quotes); setLastUpdated(new Date()); }
+    } catch { setQuotes([]); }
+  }, []);
+
+  useEffect(() => {
+    fetchQuotes();
+    if (isMarketOpen()) {
+      const interval = setInterval(fetchQuotes, 60000);
+      return () => clearInterval(interval);
+    }
+  }, [fetchQuotes]);
+
+  const updatedStr = lastUpdated
+    ? lastUpdated.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+    : null;
+  const count = quotes?.length ?? 0;
+
+  return (
+    <div className="page">
+      <div className="dash-header">
+        <div>
+          <div className="dash-title">Watchlist</div>
+          <div className="dash-meta">
+            {quotes ? `${count} tickers` : "Loading…"}
+            {" · "}
+            {isMarketOpen()
+              ? <span className="market-open">Markets Open</span>
+              : <span className="market-closed">Markets Closed</span>}
+          </div>
+        </div>
+        {updatedStr && <div className="dash-time">Updated {updatedStr}</div>}
+      </div>
+
+      <div className="ticker-grid">
+        {quotes === null
+          ? Array(8).fill(0).map((_, i) => <SkeletonCard key={i} />)
+          : quotes.length === 0
+          ? (
+            <div className="empty-state" style={{ gridColumn: "1/-1" }}>
+              <div className="empty-icon">📈</div>
+              <h3>Watchlist is empty</h3>
+              <p>Add tickers on the Notifications page to see live prices here.</p>
+            </div>
+          )
+          : quotes.map(q => (
+            <TickerCard key={q.ticker} quote={q} onAnalyze={onAnalyzeTicker} />
+          ))}
+      </div>
+    </div>
+  );
+}
+
 // ── AnalyzePage ───────────────────────────────────────────────────────────────
-function AnalyzePage() {
+function AnalyzePage({ prefilledTicker }) {
   const [ticker,   setTicker]   = useState("");
   const [audience, setAudience] = useState("student");
   const [flags,    setFlags]    = useState(["--full"]);
-  const [phase,    setPhase]    = useState("input"); // input | progress | results
+  const [phase,    setPhase]    = useState("input");
   const [jobId,    setJobId]    = useState(null);
   const [result,   setResult]   = useState(null);
   const [loading,  setLoading]  = useState(false);
   const { quote, loading: qLoading } = useQuote(ticker);
+
+  // Pre-fill ticker from dashboard "Analyze →" click
+  useEffect(() => {
+    if (prefilledTicker) { setTicker(prefilledTicker); setPhase("input"); }
+  }, [prefilledTicker]);
 
   const toggleFlag = (f) => setFlags(prev =>
     prev.includes(f) ? prev.filter(x => x !== f) : [...prev, f]
@@ -212,70 +409,63 @@ function AnalyzePage() {
       if (data.error) { alert(data.error); setLoading(false); return; }
       setJobId(data.job_id);
       setPhase("progress");
-    } catch (e) { alert("Failed to start analysis"); }
+    } catch { alert("Failed to start analysis"); }
     setLoading(false);
   };
 
   const handleDone = (msg) => { setResult(msg); setPhase("results"); };
   const handleReset = () => { setPhase("input"); setTicker(""); setResult(null); setJobId(null); };
 
-  const outputOptions = [
-    { flag: "--full",      label: "Full Package" },
-    { flag: "--pdf",       label: "Research PDF" },
-    { flag: "--pitch",     label: "Pitch Deck" },
-    { flag: "--education", label: "Education Guide" },
-  ];
-
-  // When --full is selected, others are implicit
   const isFull = flags.includes("--full");
+
+  const outcomeOptions = [
+    { flag: "--full",      icon: "📊", label: "17-Sheet Excel",   sub: "Goldman-style workbook" },
+    { flag: "--pdf",       icon: "📄", label: "10-Page PDF",      sub: "Equity research report" },
+    { flag: "--pitch",     icon: "🎯", label: "12-Slide Deck",    sub: "Pitch-ready PowerPoint" },
+    { flag: "--education", icon: "📚", label: "Education Guide",  sub: "Annotated companion PDF" },
+  ];
 
   return (
     <div className="page">
-      <div className="page-header">
+      <div className="analyze-hero">
         <h1>Stock Analysis</h1>
-        <p>Full pipeline: DCF · Research agents · Competitive · Analyst coverage · SEC filings · Insider tracking</p>
+        <p>Any public company. Full institutional research package in under 60 seconds — DCF, comps, SEC filings, insider tracking, and Claude AI synthesis.</p>
       </div>
 
       <div className="card">
         {phase === "input" && (
           <div className="card-body">
-            <div style={{ marginBottom: "1.25rem" }}>
+            <div style={{ marginBottom: "1.5rem" }}>
               <label className="field-label">Ticker Symbol</label>
               <div className="input-row">
                 <input
-                  className={`input ${quote?.valid ? "valid" : ticker.length > 0 && !qLoading && quote ? "invalid" : ""}`}
+                  className={`input input-hero ${quote?.valid ? "valid" : ticker.length > 0 && !qLoading && quote ? "invalid" : ""}`}
                   value={ticker}
                   onChange={e => setTicker(e.target.value.toUpperCase())}
-                  placeholder="AAPL"
+                  placeholder="AAPL, NVDA, LLY…"
                   maxLength={6}
                   onKeyDown={e => { if (e.key === "Enter" && quote?.valid) runAnalysis(); }}
                 />
-                <button
-                  className="btn btn-primary"
-                  disabled={!quote?.valid || loading}
-                  onClick={runAnalysis}
-                >
-                  {loading ? "Starting…" : "Analyze →"}
-                </button>
               </div>
               <QuotePreview ticker={ticker} quote={quote} loading={qLoading} />
             </div>
 
             <hr className="divider" />
 
-            <div style={{ marginBottom: "1.25rem" }}>
-              <label className="field-label">Output Package</label>
-              <div className="options-grid">
-                {outputOptions.map(o => {
+            <div style={{ marginBottom: "1.5rem" }}>
+              <label className="field-label">What you'll get</label>
+              <div className="outcome-grid">
+                {outcomeOptions.map(o => {
                   const sel = flags.includes(o.flag) || (isFull && o.flag !== "--full");
                   return (
-                    <div
-                      key={o.flag}
-                      className={`option-chip ${sel ? "selected" : ""}`}
-                      onClick={() => toggleFlag(o.flag)}
-                    >
-                      {sel && <span className="check">✓</span>}
-                      {o.label}
+                    <div key={o.flag} className={`outcome-card ${sel ? "selected" : ""}`}
+                      onClick={() => toggleFlag(o.flag)}>
+                      <span className="outcome-card-icon">{o.icon}</span>
+                      <div className="outcome-card-text">
+                        <div className="outcome-card-label">{o.label}</div>
+                        <div className="outcome-card-sub">{o.sub}</div>
+                      </div>
+                      <div className="outcome-check">{sel ? "✓" : ""}</div>
                     </div>
                   );
                 })}
@@ -286,26 +476,26 @@ function AnalyzePage() {
               <label className="field-label">Education Audience</label>
               <div className="audience-toggle">
                 {["student", "professional"].map(a => (
-                  <button
-                    key={a}
-                    className={`audience-btn ${audience === a ? "active" : ""}`}
-                    onClick={() => setAudience(a)}
-                  >
+                  <button key={a} className={`audience-btn ${audience === a ? "active" : ""}`}
+                    onClick={() => setAudience(a)}>
                     {a.charAt(0).toUpperCase() + a.slice(1)}
                   </button>
                 ))}
               </div>
             </div>
+
+            <div style={{ marginTop: "1.5rem" }}>
+              <button className="btn btn-primary btn-run"
+                disabled={!quote?.valid || loading} onClick={runAnalysis}>
+                {loading ? "Starting…" : "Run Full Analysis →"}
+              </button>
+              <div className="run-estimate">~45–60 seconds · Claude Sonnet 4.6</div>
+            </div>
           </div>
         )}
 
-        {phase === "progress" && (
-          <ProgressPanel jobId={jobId} onDone={handleDone} />
-        )}
-
-        {phase === "results" && result && (
-          <ResultsPanel result={result} onReset={handleReset} />
-        )}
+        {phase === "progress" && <ProgressPanel jobId={jobId} onDone={handleDone} />}
+        {phase === "results" && result && <ResultsPanel result={result} onReset={handleReset} />}
       </div>
     </div>
   );
@@ -314,7 +504,7 @@ function AnalyzePage() {
 // ── LBOPage ───────────────────────────────────────────────────────────────────
 function LBOPage() {
   const [ticker,    setTicker]    = useState("");
-  const [entryMult, setEntryMult] = useState(null); // null = auto
+  const [entryMult, setEntryMult] = useState(null);
   const [holdYears, setHoldYears] = useState(5);
   const [debtPct,   setDebtPct]   = useState(60);
   const [phase,     setPhase]     = useState("input");
@@ -323,7 +513,6 @@ function LBOPage() {
   const [loading,   setLoading]   = useState(false);
   const { quote, loading: qLoading } = useQuote(ticker);
 
-  // Rough IRR estimate (simplified): IRR ≈ (MOIC^(1/n) - 1) where MOIC estimated from exit/entry
   const estMOIC = () => {
     if (!quote?.pe_fwd) return null;
     const entry = entryMult || (quote.pe_fwd ? quote.pe_fwd * 0.6 : 10);
@@ -349,17 +538,12 @@ function LBOPage() {
       const data = await api("/api/lbo", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ticker,
-          entry_multiple: entryMult || null,
-          hold_years: holdYears,
-          debt_pct: debtPct / 100,
-        }),
+        body: JSON.stringify({ ticker, entry_multiple: entryMult || null, hold_years: holdYears, debt_pct: debtPct / 100 }),
       });
       if (data.error) { alert(data.error); setLoading(false); return; }
       setJobId(data.job_id);
       setPhase("progress");
-    } catch (e) { alert("Failed to start LBO"); }
+    } catch { alert("Failed to start LBO"); }
     setLoading(false);
   };
 
@@ -461,9 +645,7 @@ function LBOPage() {
           </div>
         )}
 
-        {phase === "progress" && (
-          <ProgressPanel jobId={jobId} onDone={handleDone} />
-        )}
+        {phase === "progress" && <ProgressPanel jobId={jobId} onDone={handleDone} />}
 
         {phase === "results" && result && (
           <div className="results-panel">
@@ -517,18 +699,13 @@ function MAPage() {
       const data = await api("/api/ma", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          acquirer: acq,
-          target: tgt,
-          premium_pct: premium,
-          cash_pct: cashPct,
-          synergies_m: synergies ? parseFloat(synergies) : null,
-        }),
+        body: JSON.stringify({ acquirer: acq, target: tgt, premium_pct: premium, cash_pct: cashPct,
+          synergies_m: synergies ? parseFloat(synergies) : null }),
       });
       if (data.error) { alert(data.error); setLoading(false); return; }
       setJobId(data.job_id);
       setPhase("progress");
-    } catch (e) { alert("Failed to start M&A model"); }
+    } catch { alert("Failed to start M&A model"); }
     setLoading(false);
   };
 
@@ -626,9 +803,7 @@ function MAPage() {
           </div>
         )}
 
-        {phase === "progress" && (
-          <ProgressPanel jobId={jobId} onDone={handleDone} />
-        )}
+        {phase === "progress" && <ProgressPanel jobId={jobId} onDone={handleDone} />}
 
         {phase === "results" && result && (
           <div className="results-panel">
@@ -661,6 +836,7 @@ function NotificationsPage() {
   const [saving,    setSaving]    = useState(false);
   const [testing,   setTesting]   = useState(false);
   const [saved,     setSaved]     = useState(false);
+  const [alerts,    setAlerts]    = useState(null);
   const { quote, loading: qLoading } = useQuote(newTicker);
 
   const defaultThresholds = { price_move: 3, insider_buy: 1, earnings_surp: 5, target_change: 10 };
@@ -675,6 +851,7 @@ function NotificationsPage() {
       thresholds:  { ...defaultThresholds,  ...d.thresholds  },
       alert_types: { ...defaultAlertTypes, ...d.alert_types },
     }));
+    api("/api/alerts/recent").then(d => setAlerts(d.alerts || []));
   }, []);
 
   const addTicker = () => {
@@ -684,7 +861,6 @@ function NotificationsPage() {
     setNewTicker("");
   };
   const removeTicker = (t) => setWatchlist(w => ({ ...w, tickers: w.tickers.filter(x => x !== t) }));
-
   const setThreshold = (k, v) => setWatchlist(w => ({ ...w, thresholds: { ...w.thresholds, [k]: v } }));
   const toggleAlert  = (k)    => setWatchlist(w => ({ ...w, alert_types: { ...w.alert_types, [k]: !w.alert_types[k] } }));
 
@@ -695,8 +871,7 @@ function NotificationsPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(watchlist),
     });
-    setSaving(false);
-    setSaved(true);
+    setSaving(false); setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
 
@@ -710,13 +885,23 @@ function NotificationsPage() {
   const at = watchlist.alert_types;
 
   const alertRows = [
-    { key: "price_moves",        label: "Price Moves",       sub: `>${th.price_move || 3}% daily move` },
-    { key: "analyst_changes",    label: "Analyst Changes",   sub: "Upgrades, downgrades, target changes" },
-    { key: "insider_buying",     label: "Insider Buying",    sub: `Open market buys >$${th.insider_buy || 1}M` },
-    { key: "earnings_surprises", label: "Earnings Surprises",sub: `EPS beat/miss >${th.earnings_surp || 5}%` },
-    { key: "sec_filings",        label: "SEC Filings",       sub: "New 10-K and 10-Q filings" },
-    { key: "morning_briefing",   label: "Morning Briefing",  sub: "Daily 7am market summary" },
+    { key: "price_moves",        label: "Price Moves",        sub: `>${th.price_move || 3}% daily move` },
+    { key: "analyst_changes",    label: "Analyst Changes",    sub: "Upgrades, downgrades, target changes" },
+    { key: "insider_buying",     label: "Insider Buying",     sub: `Open market buys >$${th.insider_buy || 1}M` },
+    { key: "earnings_surprises", label: "Earnings Surprises", sub: `EPS beat/miss >${th.earnings_surp || 5}%` },
+    { key: "sec_filings",        label: "SEC Filings",        sub: "New 10-K and 10-Q filings" },
+    { key: "morning_briefing",   label: "Morning Briefing",   sub: "Daily 7am market summary" },
   ];
+
+  function alertIcon(type) {
+    if (!type) return "🔔";
+    if (type.includes("price"))    return "📈";
+    if (type.includes("analysis")) return "📊";
+    if (type.includes("brief"))    return "🔔";
+    if (type.includes("upgrade"))  return "⬆️";
+    if (type.includes("downgrade"))return "⬇️";
+    return "🔔";
+  }
 
   return (
     <div className="page">
@@ -760,10 +945,10 @@ function NotificationsPage() {
           <div className="card-header"><span className="card-title">Alert Thresholds</span></div>
           <div className="card-body">
             {[
-              { key: "price_move",   label: "Price Move Alert",        unit: "%",  min: 1, max: 10, step: 1 },
-              { key: "insider_buy",  label: "Insider Buy Minimum",      unit: "$M", min: 0.1, max: 5, step: 0.1 },
-              { key: "earnings_surp",label: "Earnings Surprise Alert",  unit: "%",  min: 2, max: 15, step: 1 },
-              { key: "target_change",label: "Analyst Target Change",    unit: "%",  min: 5, max: 25, step: 5 },
+              { key: "price_move",    label: "Price Move Alert",       unit: "%",  min: 1,   max: 10, step: 1 },
+              { key: "insider_buy",   label: "Insider Buy Minimum",     unit: "$M", min: 0.1, max: 5,  step: 0.1 },
+              { key: "earnings_surp", label: "Earnings Surprise Alert", unit: "%",  min: 2,   max: 15, step: 1 },
+              { key: "target_change", label: "Analyst Target Change",   unit: "%",  min: 5,   max: 25, step: 5 },
             ].map(({ key, label, unit, min, max, step }) => (
               <div key={key} className="slider-field">
                 <div className="slider-row">
@@ -797,6 +982,29 @@ function NotificationsPage() {
           </div>
         </div>
 
+        <div className="card">
+          <div className="card-header">
+            <span className="card-title">Recent Alerts</span>
+            <span className="text-dim text-sm">Last 7 days</span>
+          </div>
+          <div className="card-body" style={{ padding: "0 1.5rem" }}>
+            {alerts === null && <div className="text-dim text-sm" style={{ padding: "16px 0" }}>Loading…</div>}
+            {alerts !== null && alerts.length === 0 && (
+              <div className="text-dim text-sm" style={{ padding: "16px 0" }}>
+                Monitoring active. Alerts will appear here when triggered.
+              </div>
+            )}
+            {alerts && alerts.map((a, i) => (
+              <div key={i} className="alert-row">
+                <span className="alert-icon">{alertIcon(a.type)}</span>
+                <span className="alert-ticker">{a.ticker || "—"}</span>
+                <span className="alert-desc">{a.message || a.type || "Alert"}</span>
+                <span className="alert-time">{a.timestamp ? fmtDateTime(a.timestamp) : "—"}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
         <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
           <button className="btn btn-primary" onClick={save} disabled={saving}>
             {saving ? "Saving…" : saved ? "✓ Saved" : "Save Settings"}
@@ -824,74 +1032,78 @@ function HistoryPage() {
     h.ticker.includes(search.toUpperCase())
   ) || [];
 
+  const ratingCls = (r) => {
+    if (!r) return "";
+    const l = r.toLowerCase();
+    if (l === "buy")  return "buy";
+    if (l === "sell") return "sell";
+    return "hold";
+  };
+
   return (
     <div className="page">
-      <div className="page-header">
-        <h1>Analysis History</h1>
-        <p>All past analyses saved to Desktop/reports/</p>
-      </div>
-
-      <div className="card">
-        <div className="card-header">
-          <span className="card-title">{history ? `${filtered.length} analyses` : "Loading…"}</span>
-          <input
-            className="input"
-            style={{ width: "160px", fontSize: "0.8rem", padding: "0.3rem 0.6rem" }}
-            placeholder="Filter ticker…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
+      <div className="page-header" style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+        <div>
+          <h1>Analysis History</h1>
+          <p>{history ? `${filtered.length} ${filtered.length === 1 ? "analysis" : "analyses"}` : "Loading…"}</p>
         </div>
-
-        {history === null && (
-          <div className="card-body"><div className="text-muted">Loading…</div></div>
-        )}
-
-        {history !== null && filtered.length === 0 && (
-          <div className="empty-state">
-            <div className="empty-icon">📂</div>
-            <h3>{search ? "No match" : "No analyses yet"}</h3>
-            <p>{search ? `No analyses for "${search.toUpperCase()}"` : "Run your first analysis to see history here"}</p>
-          </div>
-        )}
-
-        {filtered.length > 0 && (
-          <div style={{ overflowX: "auto" }}>
-            <table className="history-table">
-              <thead>
-                <tr>
-                  <th>Ticker</th>
-                  <th>Date Run</th>
-                  <th>Outputs</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map(h => (
-                  <tr key={h.ticker}>
-                    <td><span className="ticker-cell">{h.ticker}</span></td>
-                    <td className="text-muted">{fmtDate(h.timestamp)}</td>
-                    <td>
-                      {h.files.map(f => (
-                        <a key={f} href={`/api/download/${h.ticker}/${f}`}
-                          className="file-badge" download title={f}>
-                          {fileIcon(f)} {f.replace(/^\d{2}_[A-Z]+_/, "").replace(/\.[^.]+$/, "")}
-                        </a>
-                      ))}
-                    </td>
-                    <td>
-                      <a href={`/api/download/${h.ticker}/05_${h.ticker}_Analysis.md`}
-                        className="btn btn-ghost btn-sm" style={{ textDecoration: "none" }} download>
-                        ↓ Notes
-                      </a>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <input
+          className="input"
+          style={{ width: 160, fontSize: "0.8rem", height: 36 }}
+          placeholder="Filter ticker…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
       </div>
+
+      {history === null && (
+        <div className="card"><div className="card-body text-muted">Loading…</div></div>
+      )}
+
+      {history !== null && filtered.length === 0 && (
+        <div className="empty-state">
+          <div className="empty-icon">📂</div>
+          <h3>{search ? "No match" : "No analyses yet"}</h3>
+          <p>{search ? `No analyses for "${search.toUpperCase()}"` : "Run your first analysis to see it here."}</p>
+        </div>
+      )}
+
+      {filtered.length > 0 && (
+        <div className="history-list">
+          {filtered.map(h => (
+            <div key={h.ticker} className="history-card">
+              <div className="history-card-header">
+                <div>
+                  <div className="history-card-ticker">{h.ticker}</div>
+                  <div className="history-card-name">{h.company || ""}</div>
+                </div>
+                <div className="history-card-date">{fmtDate(h.timestamp)}</div>
+              </div>
+
+              {(h.rating || h.target) && (
+                <div className="history-card-meta">
+                  {h.rating && (
+                    <span className={`rating-tag ${ratingCls(h.rating)}`}>{h.rating}</span>
+                  )}
+                  {h.target && (
+                    <span className="history-card-target">{h.target} target</span>
+                  )}
+                </div>
+              )}
+
+              <div className="history-card-files">
+                {h.files.map(f => (
+                  <a key={f} href={`/api/download/${h.ticker}/${f}`}
+                    className="history-dl-btn" download>
+                    <span>{fileIcon(f)}</span>
+                    <span>{fileLabel(f)}</span>
+                  </a>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -899,6 +1111,12 @@ function HistoryPage() {
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 function Sidebar({ page, onNavigate }) {
   const items = [
+    { id: "dashboard", label: "Home", icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+        <polyline points="9 22 9 12 15 12 15 22"/>
+      </svg>
+    )},
     { id: "analyze", label: "New Analysis", icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
@@ -925,6 +1143,7 @@ function Sidebar({ page, onNavigate }) {
       </svg>
     )},
   ];
+
   return (
     <nav className="sidebar">
       <div className="sidebar-logo">
@@ -961,10 +1180,17 @@ function Sidebar({ page, onNavigate }) {
 
 // ── App root ──────────────────────────────────────────────────────────────────
 function App() {
-  const [page, setPage] = useState("analyze");
+  const [page, setPage] = useState("dashboard");
+  const [prefilledTicker, setPrefilledTicker] = useState("");
+
+  const handleAnalyzeTicker = useCallback((ticker) => {
+    setPrefilledTicker(ticker);
+    setPage("analyze");
+  }, []);
 
   const pages = {
-    analyze:       <AnalyzePage />,
+    dashboard:     <DashboardPage onAnalyzeTicker={handleAnalyzeTicker} />,
+    analyze:       <AnalyzePage prefilledTicker={prefilledTicker} />,
     lbo:           <LBOPage />,
     ma:            <MAPage />,
     notifications: <NotificationsPage />,
