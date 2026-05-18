@@ -8,7 +8,7 @@ import sys
 import threading
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait as futures_wait
 from datetime import date, datetime
 from pathlib import Path
 
@@ -760,6 +760,10 @@ def _extract_rating(ticker_dir: Path):
 
 
 # ── Market Bar ───────────────────────────────────────────────────────────────
+_TICKER_CACHE: dict = {"data": None, "ts": 0.0}
+_TICKER_LOCK = threading.Lock()
+
+
 def _is_market_open_py() -> bool:
     from datetime import datetime, timezone, timedelta
     et = timezone(timedelta(hours=-4))  # EDT approximation
@@ -769,10 +773,24 @@ def _is_market_open_py() -> bool:
     mins = now.hour * 60 + now.minute
     return 9 * 60 + 30 <= mins < 16 * 60
 
+def _load_watchlist_tickers() -> list:
+    try:
+        wl_path = PROJECT_ROOT / "automation" / "watchlist.json"
+        with open(wl_path) as f:
+            return json.load(f).get("tickers", [])
+    except Exception:
+        return []
+
+
 @app.route("/api/market-bar")
 def api_market_bar():
-    """Fetch S&P 500 (^GSPC), VIX (^VIX), and 10yr yield (^TNX) for the market status bar."""
-    def _fetch(ticker, label, is_yield=False):
+    """Fetch indices + watchlist tickers for the scrolling ticker tape (55s server cache)."""
+    with _TICKER_LOCK:
+        if _TICKER_CACHE["data"] and (time.time() - _TICKER_CACHE["ts"]) < 55:
+            return jsonify(_TICKER_CACHE["data"])
+
+    def _fetch_one(ticker, label=None, is_yield=False):
+        lbl = label or ticker
         try:
             import yfinance as yf
             info = yf.Ticker(ticker).info
@@ -780,31 +798,57 @@ def api_market_bar():
             change_pct = info.get("regularMarketChangePercent") or 0
             change = info.get("regularMarketChange") or 0
             if price is None:
-                return {"label": label, "error": "no data"}
-            val = round(float(price), 2)
+                return {"ticker": ticker, "label": lbl, "error": "no data"}
             return {
-                "label": label,
                 "ticker": ticker,
-                "price": val,
+                "label": lbl,
+                "price": round(float(price), 2),
                 "change": round(float(change), 2),
                 "change_pct": round(float(change_pct), 2),
                 "is_yield": is_yield,
             }
         except Exception as ex:
-            return {"label": label, "ticker": ticker, "error": str(ex)}
+            return {"ticker": ticker, "label": lbl, "error": str(ex)[:80]}
 
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        f_spx = pool.submit(_fetch, "^GSPC", "S&P 500")
-        f_vix = pool.submit(_fetch, "^VIX", "VIX")
-        f_tsy = pool.submit(_fetch, "^TNX", "10yr", True)
+    watchlist = _load_watchlist_tickers()
 
-    return jsonify({
-        "spx": f_spx.result(),
-        "vix": f_vix.result(),
-        "tsy": f_tsy.result(),
+    pool = ThreadPoolExecutor(max_workers=10)
+    f_spx = pool.submit(_fetch_one, "^GSPC", "S&P 500")
+    f_vix = pool.submit(_fetch_one, "^VIX", "VIX")
+    f_tsy = pool.submit(_fetch_one, "^TNX", "10yr", True)
+    wl_futures = {t: pool.submit(_fetch_one, t) for t in watchlist}
+
+    all_futures = [f_spx, f_vix, f_tsy] + list(wl_futures.values())
+    futures_wait(all_futures, timeout=4)
+    pool.shutdown(wait=False)
+
+    def _safe(f):
+        try:
+            return f.result(timeout=0)
+        except Exception:
+            return {"error": "timeout"}
+
+    wl_results = []
+    for t in watchlist:
+        r = _safe(wl_futures[t])
+        if "ticker" not in r:
+            r["ticker"] = t
+        wl_results.append(r)
+
+    result = {
+        "spx": _safe(f_spx),
+        "vix": _safe(f_vix),
+        "tsy": _safe(f_tsy),
+        "watchlist": wl_results,
         "market_open": _is_market_open_py(),
         "timestamp": time.time(),
-    })
+    }
+
+    with _TICKER_LOCK:
+        _TICKER_CACHE["data"] = result
+        _TICKER_CACHE["ts"] = result["timestamp"]
+
+    return jsonify(result)
 
 
 # ── Test notification ─────────────────────────────────────────────────────────

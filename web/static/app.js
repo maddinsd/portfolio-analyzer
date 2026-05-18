@@ -2,7 +2,7 @@
    React 18 + Babel standalone. No build step. CSS-based animations throughout.
    Dark mode via data-theme="dark" on <html>. */
 
-const { useState, useEffect, useRef, useCallback, useMemo } = React;
+const { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect } = React;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 const api = (path, opts = {}) =>
@@ -156,17 +156,21 @@ function Sparkline({ prices, width = 64, height = 30 }) {
   );
 }
 
-// ── Market Status Bar ─────────────────────────────────────────────────────────
-function MarketBar() {
+// ── Ticker Tape ───────────────────────────────────────────────────────────────
+function TickerTape() {
   const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const lastKnown = useRef(null);
+  const tapeRef = useRef(null);
+  const trackRef = useRef(null);
 
   const load = useCallback(async () => {
     try {
       const r = await api("/api/market-bar");
+      lastKnown.current = r;
       setData(r);
-    } catch { /* silent */ }
-    setLoading(false);
+    } catch {
+      if (lastKnown.current) setData(prev => ({ ...lastKnown.current }));
+    }
   }, []);
 
   useEffect(() => {
@@ -175,40 +179,69 @@ function MarketBar() {
     return () => clearInterval(id);
   }, [load]);
 
-  if (loading || !data) return null;
+  useLayoutEffect(() => {
+    if (!trackRef.current || !tapeRef.current) return;
+    const halfW = trackRef.current.scrollWidth / 2;
+    if (halfW < 1) return;
+    tapeRef.current.style.setProperty("--ticker-dur", `${(halfW / 40).toFixed(1)}s`);
+  }, [data]);
 
-  const items = [
-    { label: "S&P 500", d: data.spx, fmt: (v) => `$${v?.toLocaleString("en-US", { minimumFractionDigits: 2 })}` },
-    { label: "VIX",     d: data.vix, fmt: (v) => v?.toFixed(2) },
-    { label: "10yr",    d: data.tsy, fmt: (v) => v ? `${v.toFixed(2)}%` : "—" },
-  ];
+  if (!data) return null;
+
+  const stale = !data.timestamp || (Date.now() / 1000 - data.timestamp > 120);
+
+  function fmtChg(chg) {
+    const c = chg ?? 0;
+    const dir = c > 0.02 ? "up" : c < -0.02 ? "down" : "flat";
+    const arrow = c >= 0 ? "▲" : "▼";
+    return React.createElement("span", { className: `ticker-chg ${dir}` },
+      `${arrow} ${Math.abs(c).toFixed(2)}%`
+    );
+  }
+
+  const items = [];
+  if (data.spx && !data.spx.error) {
+    items.push({ label: "S&P 500", price: `$${(data.spx.price || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}`, chg: data.spx.change_pct ?? 0 });
+  }
+  if (data.vix && !data.vix.error) {
+    items.push({ label: "VIX", price: (data.vix.price || 0).toFixed(2), chg: data.vix.change_pct ?? 0 });
+  }
+  if (data.tsy && !data.tsy.error) {
+    items.push({ label: "10yr", price: `${(data.tsy.price || 0).toFixed(2)}%`, chg: data.tsy.change_pct ?? 0 });
+  }
+  if (data.watchlist) {
+    data.watchlist.forEach(w => {
+      if (!w.error) items.push({ label: w.ticker, price: `$${(w.price || 0).toFixed(2)}`, chg: w.change_pct ?? 0 });
+    });
+  }
+
+  if (!items.length) return null;
+
+  function renderSet(prefix) {
+    return items.map((it, i) => (
+      <React.Fragment key={`${prefix}${it.label}${i}`}>
+        <div className="ticker-item">
+          <span className="ticker-label">{it.label}</span>
+          <span className={`ticker-price${stale ? " stale" : ""}`}>{stale ? "~" : ""}{it.price}</span>
+          {fmtChg(it.chg)}
+        </div>
+        <div className="ticker-sep" aria-hidden="true" />
+      </React.Fragment>
+    ));
+  }
 
   return (
-    <div className="market-bar">
-      <span className={`market-status ${data.market_open ? "open" : "closed"}`}>
+    <div className="ticker-tape" ref={tapeRef}>
+      <div className="ticker-status">
+        <div className={`ticker-dot ${data.market_open ? "live" : "closed"}`} />
         {data.market_open ? "Live" : "Closed"}
-      </span>
-      <div className="market-divider" />
-      {items.map((item, i) => {
-        if (!item.d || item.d.error) return null;
-        const chg = item.d.change_pct ?? 0;
-        const dir = chg > 0.02 ? "up" : chg < -0.02 ? "down" : null;
-        const arrow = chg >= 0 ? "▲" : "▼";
-        return (
-          <React.Fragment key={item.label}>
-            <div className="market-bar-item">
-              <span className="market-bar-label">{item.label}</span>
-              <span className="market-bar-value">{item.fmt(item.d.price)}</span>
-              {dir && (
-                <span className={`market-bar-change ${dir}`}>
-                  {arrow} {Math.abs(chg).toFixed(2)}%
-                </span>
-              )}
-            </div>
-            {i < items.length - 1 && <div className="market-divider" />}
-          </React.Fragment>
-        );
-      })}
+      </div>
+      <div className="ticker-scroll-area">
+        <div className="ticker-track" ref={trackRef}>
+          {renderSet("a")}
+          {renderSet("b")}
+        </div>
+      </div>
     </div>
   );
 }
@@ -2172,7 +2205,7 @@ function App() {
     <div className="app-shell">
       <Sidebar page={page} onNavigate={handleNavigate} theme={theme} onToggleTheme={toggleTheme} onShowAbout={() => setShowAbout(true)} onLaunchTour={() => setShowTour(true)} />
       <div className="content-area">
-        <MarketBar />
+        <TickerTape />
         {page === "analyze" && <NoticeCard />}
         {pages[page]}
       </div>
