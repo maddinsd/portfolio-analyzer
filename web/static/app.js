@@ -158,11 +158,11 @@ function Sparkline({ prices, width = 64, height = 30 }) {
 
 // ── Ticker Tape ───────────────────────────────────────────────────────────────
 function TickerTape() {
-  const [data, setData] = useState(null);
+  const [data,   setData]   = useState(null);
+  const [copies, setCopies] = useState(3);
   const lastKnown = useRef(null);
-  const tapeRef = useRef(null);
-  const outerRef = useRef(null);
-  const trackRef = useRef(null);
+  const tapeRef   = useRef(null);
+  const innerRef  = useRef(null);
 
   const load = useCallback(async () => {
     try {
@@ -180,61 +180,60 @@ function TickerTape() {
     return () => clearInterval(id);
   }, [load]);
 
-  // After each render: remove old clone, append fresh clone, set widths + duration
+  // Measure after render. If copies is wrong, bump it and let React re-render.
+  // On second pass copies matches needed → set CSS vars and stop.
   useLayoutEffect(() => {
-    const track = trackRef.current;
-    const outer = outerRef.current;
+    const inner = innerRef.current;
     const tape  = tapeRef.current;
-    if (!track || !outer || !tape) return;
-
-    // Remove previous clone
-    outer.querySelectorAll(".ticker-clone").forEach(el => el.remove());
-
-    const w = track.scrollWidth;
-    if (w < 1) return;
-
-    // Append identical second copy for seamless loop
-    const clone = track.cloneNode(true);
-    clone.classList.add("ticker-clone");
-    outer.appendChild(clone);
-
-    // Outer must be exactly 2× track width for -50% = one full copy
-    outer.style.width = `${w * 2}px`;
-
-    // Speed: 40px/s over one copy width
-    tape.style.setProperty("--ticker-dur", `${(w / 40).toFixed(1)}s`);
-  }, [data]);
+    if (!inner || !tape) return;
+    const totalWidth = inner.scrollWidth;
+    const oneWidth   = totalWidth / copies;
+    if (oneWidth < 1) return;
+    const needed = Math.max(3, Math.ceil((window.innerWidth * 2) / oneWidth) + 1);
+    if (needed !== copies) { setCopies(needed); return; }
+    tape.style.setProperty("--ticker-shift", `-${oneWidth.toFixed(0)}px`);
+    tape.style.setProperty("--ticker-dur",   `${(oneWidth / 40).toFixed(1)}s`);
+  }, [data, copies]);
 
   if (!data) return null;
 
   const stale = !data.timestamp || (Date.now() / 1000 - data.timestamp > 120);
 
+  function formatPrice(ticker, price) {
+    const noPrefix = ["S&P 500", "^GSPC", "VIX", "^VIX"];
+    const isYield  = ticker.includes("TNX") || ticker === "10YR";
+    if (isYield) return (price || 0).toFixed(2) + "%";
+    if (noPrefix.some(t => ticker.includes(t))) return (price || 0).toLocaleString("en-US", { minimumFractionDigits: 2 });
+    return "$" + (price || 0).toLocaleString("en-US", { minimumFractionDigits: 2 });
+  }
+
   function fmtChg(chg) {
     const c = chg ?? 0;
     const dir = c > 0.02 ? "up" : c < -0.02 ? "down" : "flat";
-    const arrow = c >= 0 ? "▲" : "▼";
     return React.createElement("span", { className: `ticker-chg ${dir}` },
-      `${arrow} ${Math.abs(c).toFixed(2)}%`
+      `${c >= 0 ? "▲" : "▼"} ${Math.abs(c).toFixed(2)}%`
     );
   }
 
   const items = [];
   if (data.spx && !data.spx.error) {
-    items.push({ label: "S&P 500", price: `$${(data.spx.price || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}`, chg: data.spx.change_pct ?? 0 });
+    items.push({ label: "S&P 500", ticker: "^GSPC", price: data.spx.price, chg: data.spx.change_pct ?? 0 });
   }
   if (data.vix && !data.vix.error) {
-    items.push({ label: "VIX", price: (data.vix.price || 0).toFixed(2), chg: data.vix.change_pct ?? 0 });
+    items.push({ label: "VIX", ticker: "^VIX", price: data.vix.price, chg: data.vix.change_pct ?? 0 });
   }
   if (data.tsy && !data.tsy.error) {
-    items.push({ label: "10yr", price: `${(data.tsy.price || 0).toFixed(2)}%`, chg: data.tsy.change_pct ?? 0 });
+    items.push({ label: "10YR", ticker: "^TNX", price: data.tsy.price, chg: data.tsy.change_pct ?? 0 });
   }
-  if (data.watchlist) {
-    data.watchlist.forEach(w => {
-      if (!w.error) items.push({ label: w.ticker, price: `$${(w.price || 0).toFixed(2)}`, chg: w.change_pct ?? 0 });
-    });
-  }
+  const watchlist = (data.watchlist || []).filter(w => !w.error)
+                                          .sort((a, b) => a.ticker.localeCompare(b.ticker));
+  watchlist.forEach(w => {
+    items.push({ label: w.ticker, ticker: w.ticker, price: w.price, chg: w.change_pct ?? 0 });
+  });
 
   if (!items.length) return null;
+
+  const repeated = Array.from({ length: copies }, () => items).flat();
 
   return (
     <div className="ticker-tape" ref={tapeRef}>
@@ -243,19 +242,19 @@ function TickerTape() {
         {data.market_open ? "Live" : "Closed"}
       </div>
       <div className="ticker-scroll-area">
-        <div className="ticker-outer" ref={outerRef}>
-          <div className="ticker-track" ref={trackRef}>
-            {items.map((it, i) => (
-              <React.Fragment key={it.label + i}>
-                <div className="ticker-item">
-                  <span className="ticker-label">{it.label}</span>
-                  <span className={`ticker-price${stale ? " stale" : ""}`}>{stale ? "~" : ""}{it.price}</span>
-                  {fmtChg(it.chg)}
-                </div>
-                <div className="ticker-sep" aria-hidden="true" />
-              </React.Fragment>
-            ))}
-          </div>
+        <div className="ticker-inner" ref={innerRef}>
+          {repeated.map((it, i) => (
+            <React.Fragment key={i}>
+              <div className="ticker-item">
+                <span className="ticker-label">{it.label}</span>
+                <span className={`ticker-price${stale ? " stale" : ""}`}>
+                  {stale ? "~" : ""}{formatPrice(it.ticker, it.price)}
+                </span>
+                {fmtChg(it.chg)}
+              </div>
+              <span className="ticker-sep" aria-hidden="true">|</span>
+            </React.Fragment>
+          ))}
         </div>
       </div>
     </div>
@@ -1625,7 +1624,7 @@ function HistoryPage({ onAnalyzeTicker }) {
 }
 
 // ── Sidebar ───────────────────────────────────────────────────────────────────
-function Sidebar({ page, onNavigate, theme, onToggleTheme, onShowAbout, onLaunchTour }) {
+function Sidebar({ page, onNavigate, theme, onToggleTheme, onShowAbout, onLaunchTour, isAdmin, onShowAdmin }) {
   const items = [
     { id: "analyze",       label: "Home",           icon: ICONS.BarChart },
     { id: "watchlist",     label: "Watchlist",      icon: (p={}) => (
@@ -1690,6 +1689,14 @@ function Sidebar({ page, onNavigate, theme, onToggleTheme, onShowAbout, onLaunch
         </svg>
         Platform tour
       </button>
+      {isAdmin ? (
+        <button className="sidebar-admin-link" onClick={async () => {
+          await api("/api/admin/logout", { method: "POST" }).catch(() => {});
+          window.location.reload();
+        }}>Sign Out</button>
+      ) : (
+        <button className="sidebar-admin-link" onClick={onShowAdmin}>Admin</button>
+      )}
     </nav>
   );
 }
@@ -2229,16 +2236,70 @@ function VisitorBanner({ storageKey, heading, children }) {
   );
 }
 
+// ── AdminModal ────────────────────────────────────────────────────────────────
+function AdminModal({ onClose }) {
+  const [password, setPassword] = useState("");
+  const [error,    setError]    = useState("");
+  const [shaking,  setShaking]  = useState(false);
+  const inputRef = useRef(null);
+
+  useEffect(() => { inputRef.current?.focus(); }, []);
+
+  useEffect(() => {
+    const handler = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  const submit = async () => {
+    try {
+      await api("/api/admin/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+      window.location.reload();
+    } catch {
+      setError("Incorrect password");
+      setShaking(true);
+      setPassword("");
+      setTimeout(() => { setShaking(false); }, 350);
+      setTimeout(() => { inputRef.current?.focus(); }, 10);
+    }
+  };
+
+  return (
+    <div className="admin-modal-overlay" onClick={onClose}>
+      <div className="admin-modal-card" onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Admin sign in">
+        <h3>Admin Sign In</h3>
+        <input
+          ref={inputRef}
+          type="password"
+          className={`admin-modal-input${shaking ? " input-error" : ""}`}
+          placeholder="Password"
+          value={password}
+          onChange={e => { setPassword(e.target.value); setError(""); }}
+          onKeyDown={e => { if (e.key === "Enter") submit(); }}
+          autoComplete="current-password"
+        />
+        {error && <div className="admin-error-text">{error}</div>}
+        <button className="admin-submit-btn" onClick={submit}>Sign In</button>
+      </div>
+    </div>
+  );
+}
+
 // ── App root ──────────────────────────────────────────────────────────────────
 function App() {
   const [page,            setPage]            = useState("analyze");
   const [prefilledTicker, setPrefilledTicker] = useState("");
   const [isVercel,        setIsVercel]        = useState(false);
-  const [isAdmin,         setIsAdmin]         = useState(true);
+  const [isAdmin,         setIsAdmin]         = useState(false);
   const [theme,           setTheme]           = useState(getInitialTheme);
   const [showAbout,       setShowAbout]       = useState(false);
   const [showTour,        setShowTour]        = useState(shouldShowTour);
   const [showShortcuts,   setShowShortcuts]   = useState(false);
+  const [showAdmin,       setShowAdmin]       = useState(false);
 
   useEffect(() => {
     applyTheme(theme);
@@ -2282,7 +2343,7 @@ function App() {
 
   return (
     <div className="app-shell">
-      <Sidebar page={page} onNavigate={handleNavigate} theme={theme} onToggleTheme={toggleTheme} onShowAbout={() => setShowAbout(true)} onLaunchTour={() => setShowTour(true)} />
+      <Sidebar page={page} onNavigate={handleNavigate} theme={theme} onToggleTheme={toggleTheme} onShowAbout={() => setShowAbout(true)} onLaunchTour={() => setShowTour(true)} isAdmin={isAdmin} onShowAdmin={() => setShowAdmin(true)} />
       <div className="content-area">
         <TickerTape />
         {page === "analyze" && <NoticeCard />}
@@ -2292,6 +2353,7 @@ function App() {
       {showAbout     && <AboutModal     onClose={() => setShowAbout(false)} />}
       {showTour      && <OnboardingTour onClose={() => setShowTour(false)} />}
       {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} />}
+      {showAdmin     && <AdminModal     onClose={() => setShowAdmin(false)} />}
     </div>
   );
 }
