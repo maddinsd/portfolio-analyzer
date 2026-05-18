@@ -146,6 +146,16 @@ def index():
 def api_config():
     return jsonify({"is_vercel": IS_VERCEL})
 
+
+# ── Auth ──────────────────────────────────────────────────────────────────────
+def is_admin() -> bool:
+    return request.cookies.get("admin_token") == os.environ.get("ADMIN_TOKEN", "lindner2026")
+
+
+@app.route("/api/auth/status")
+def api_auth_status():
+    return jsonify({"is_admin": is_admin()})
+
 # ── Quote ─────────────────────────────────────────────────────────────────────
 @app.route("/api/quote/<ticker>")
 def api_quote(ticker):
@@ -683,6 +693,8 @@ def api_watchlist_get():
 
 @app.route("/api/watchlist", methods=["POST"])
 def api_watchlist_post():
+    if not is_admin():
+        return jsonify({"error": "Unauthorized"}), 403
     data = request.get_json() or {}
     WATCHLIST.write_text(json.dumps(data, indent=2))
     return jsonify({"ok": True})
@@ -854,6 +866,8 @@ def api_market_bar():
 # ── Test notification ─────────────────────────────────────────────────────────
 @app.route("/api/notify/test", methods=["POST"])
 def api_notify_test():
+    if not is_admin():
+        return jsonify({"error": "Unauthorized"}), 403
     try:
         import requests as req
         resp = req.post(

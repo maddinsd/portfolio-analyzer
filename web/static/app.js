@@ -700,7 +700,7 @@ function RecentAnalyses({ onAnalyzeTicker, onNavigate }) {
 }
 
 // ── DashboardPage ─────────────────────────────────────────────────────────────
-function DashboardPage({ onAnalyzeTicker, onNavigate }) {
+function DashboardPage({ onAnalyzeTicker, onNavigate, isAdmin }) {
   const [quotes, setQuotes] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
 
@@ -726,6 +726,11 @@ function DashboardPage({ onAnalyzeTicker, onNavigate }) {
 
   return (
     <div className="page">
+      {!isAdmin && (
+        <VisitorBanner storageKey="visitor_watchlist_notice_dismissed" heading="You're viewing Sam's Watchlist">
+          This watchlist is Sam's personal configuration. Run any analysis from the home page using any ticker you like — results are yours and not saved to this watchlist.
+        </VisitorBanner>
+      )}
       <div className="dash-header">
         <div>
           <div className="dash-title">Watchlist</div>
@@ -754,11 +759,13 @@ function DashboardPage({ onAnalyzeTicker, onNavigate }) {
               <div className="empty-icon">{ICONS.ChartLine({ size: 48 })}</div>
               <h3>Watchlist is empty</h3>
               <p>Add tickers on the Notifications page to see live prices and sparklines here.</p>
-              <div className="empty-action">
-                <button className="btn btn-primary" onClick={() => onNavigate("notifications")}>
-                  {ICONS.PlusCircle({ size: 16 })} Add Tickers →
-                </button>
-              </div>
+              {isAdmin && (
+                <div className="empty-action">
+                  <button className="btn btn-primary" onClick={() => onNavigate("notifications")}>
+                    {ICONS.PlusCircle({ size: 16 })} Add Tickers →
+                  </button>
+                </div>
+              )}
             </div>
           )
           : quotes.map(q => (
@@ -1260,7 +1267,7 @@ function MAPage() {
 }
 
 // ── NotificationsPage ─────────────────────────────────────────────────────────
-function NotificationsPage() {
+function NotificationsPage({ isAdmin }) {
   const [watchlist, setWatchlist] = useState({ tickers: [], thresholds: {}, alert_types: {} });
   const [newTicker, setNewTicker] = useState("");
   const [saving,    setSaving]    = useState(false);
@@ -1339,6 +1346,13 @@ function NotificationsPage() {
 
   return (
     <div className="page">
+      {!isAdmin && (
+        <VisitorBanner storageKey="visitor_notifications_notice_dismissed" heading="Personal Notification Setup">
+          These are Sam's personal alert settings delivered via ntfy.sh — a free, open-source push notification app. To set up your own alerts for any stock, download ntfy.sh, create a free topic, and build your own instance of this platform from the{" "}
+          <a href="https://github.com/maddinsd/portfolio-analyzer" target="_blank" rel="noopener noreferrer">GitHub repo</a>{" "}
+          linked in the About section.
+        </VisitorBanner>
+      )}
       <div className="page-header">
         <h1>Notifications</h1>
         <p>Manage watchlist, alert thresholds, and ntfy.sh push notifications</p>
@@ -1360,23 +1374,27 @@ function NotificationsPage() {
                 {watchlist.tickers.map(t => (
                   <div key={t} className="ticker-chip">
                     {t}
-                    <button className="chip-remove" onClick={() => removeTicker(t)}>×</button>
+                    {isAdmin && <button className="chip-remove" onClick={() => removeTicker(t)}>×</button>}
                   </div>
                 ))}
               </div>
             )}
-            <div className="input-row mt-3">
-              <input
-                className={`input ${quote?.valid ? "valid" : newTicker.length > 0 && !qLoading && quote ? "invalid" : ""}`}
-                value={newTicker}
-                onChange={e => setNewTicker(e.target.value.toUpperCase())}
-                placeholder="Add ticker…"
-                maxLength={6}
-                onKeyDown={e => { if (e.key === "Enter" && quote?.valid) addTicker(); }}
-              />
-              <button className="btn btn-secondary" disabled={!quote?.valid} onClick={addTicker}>Add</button>
-            </div>
-            {newTicker && <QuotePreview ticker={newTicker} quote={quote} loading={qLoading} />}
+            {isAdmin && (
+              <>
+                <div className="input-row mt-3">
+                  <input
+                    className={`input ${quote?.valid ? "valid" : newTicker.length > 0 && !qLoading && quote ? "invalid" : ""}`}
+                    value={newTicker}
+                    onChange={e => setNewTicker(e.target.value.toUpperCase())}
+                    placeholder="Add ticker…"
+                    maxLength={6}
+                    onKeyDown={e => { if (e.key === "Enter" && quote?.valid) addTicker(); }}
+                  />
+                  <button className="btn btn-secondary" disabled={!quote?.valid} onClick={addTicker}>Add</button>
+                </div>
+                {newTicker && <QuotePreview ticker={newTicker} quote={quote} loading={qLoading} />}
+              </>
+            )}
           </div>
         </div>
 
@@ -1396,7 +1414,8 @@ function NotificationsPage() {
                 </div>
                 <input type="range" min={min} max={max} step={step}
                   value={th[key] || min}
-                  onChange={e => setThreshold(key, parseFloat(e.target.value))} />
+                  disabled={!isAdmin}
+                  onChange={e => isAdmin && setThreshold(key, parseFloat(e.target.value))} />
                 <div className="slider-bounds"><span>{min}{unit}</span><span>{max}{unit}</span></div>
               </div>
             ))}
@@ -1413,7 +1432,7 @@ function NotificationsPage() {
                   <div className="switch-sub">{row.sub}</div>
                 </div>
                 <label className="switch">
-                  <input type="checkbox" checked={!!at[row.key]} onChange={() => toggleAlert(row.key)} />
+                  <input type="checkbox" checked={!!at[row.key]} disabled={!isAdmin} onChange={() => isAdmin && toggleAlert(row.key)} />
                   <div className="switch-track" />
                 </label>
               </div>
@@ -1446,22 +1465,24 @@ function NotificationsPage() {
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: "var(--space-3)", alignItems: "center", flexWrap: "wrap" }}>
-          <button className="btn btn-primary" onClick={save} disabled={saving}>
-            {saving ? "Saving…" : saved ? "✓ Saved" : "Save Settings"}
-          </button>
-          <button className="btn btn-secondary" onClick={testNotify} disabled={testing}>
-            {testing ? "Sending…" : <>{ICONS.Phone({ size: 14 })} Test Notification</>}
-          </button>
-          <span className="text-dim text-sm">ntfy.sh/sam-madding-finance-alerts</span>
-          {ntfyResult && (
-            <span style={{ fontSize: "var(--text-body-sm)", color: ntfyResult.ok ? "var(--success-text)" : "var(--error-text)" }}>
-              {ntfyResult.ok
-                ? `✓ Sent (HTTP ${ntfyResult.status_code}) — check your phone`
-                : `✗ Failed — ${ntfyResult.error || ntfyResult.body || "unknown error"}`}
-            </span>
-          )}
-        </div>
+        {isAdmin && (
+          <div style={{ display: "flex", gap: "var(--space-3)", alignItems: "center", flexWrap: "wrap" }}>
+            <button className="btn btn-primary" onClick={save} disabled={saving}>
+              {saving ? "Saving…" : saved ? "✓ Saved" : "Save Settings"}
+            </button>
+            <button className="btn btn-secondary" onClick={testNotify} disabled={testing}>
+              {testing ? "Sending…" : <>{ICONS.Phone({ size: 14 })} Test Notification</>}
+            </button>
+            <span className="text-dim text-sm">ntfy.sh/sam-madding-finance-alerts</span>
+            {ntfyResult && (
+              <span style={{ fontSize: "var(--text-body-sm)", color: ntfyResult.ok ? "var(--success-text)" : "var(--error-text)" }}>
+                {ntfyResult.ok
+                  ? `✓ Sent (HTTP ${ntfyResult.status_code}) — check your phone`
+                  : `✗ Failed — ${ntfyResult.error || ntfyResult.body || "unknown error"}`}
+              </span>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -2152,11 +2173,37 @@ function NoticeCard() {
   );
 }
 
+// ── VisitorBanner ─────────────────────────────────────────────────────────────
+function VisitorBanner({ storageKey, heading, children }) {
+  const [dismissed, setDismissed] = useState(
+    () => localStorage.getItem(storageKey) === "1"
+  );
+  if (dismissed) return null;
+  return (
+    <div className="visitor-banner">
+      <svg className="visitor-banner-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <rect x="3" y="7" width="10" height="8" rx="1.5" stroke="var(--accent-primary)" strokeWidth="1.5"/>
+        <path d="M5 7V5a3 3 0 0 1 6 0v2" stroke="var(--accent-primary)" strokeWidth="1.5" strokeLinecap="round"/>
+      </svg>
+      <div className="visitor-banner-content">
+        <div className="visitor-banner-heading">{heading}</div>
+        <div className="visitor-banner-body">{children}</div>
+      </div>
+      <button
+        className="visitor-banner-dismiss"
+        aria-label="Dismiss"
+        onClick={() => { localStorage.setItem(storageKey, "1"); setDismissed(true); }}
+      >×</button>
+    </div>
+  );
+}
+
 // ── App root ──────────────────────────────────────────────────────────────────
 function App() {
   const [page,            setPage]            = useState("analyze");
   const [prefilledTicker, setPrefilledTicker] = useState("");
   const [isVercel,        setIsVercel]        = useState(false);
+  const [isAdmin,         setIsAdmin]         = useState(true);
   const [theme,           setTheme]           = useState(getInitialTheme);
   const [showAbout,       setShowAbout]       = useState(false);
   const [showTour,        setShowTour]        = useState(shouldShowTour);
@@ -2172,6 +2219,7 @@ function App() {
 
   useEffect(() => {
     api("/api/config").then(d => setIsVercel(!!d.is_vercel)).catch(() => {});
+    api("/api/auth/status").then(d => setIsAdmin(!!d.is_admin)).catch(() => setIsAdmin(false));
   }, []);
 
   const handleAnalyzeTicker = useCallback((ticker) => {
@@ -2194,10 +2242,10 @@ function App() {
 
   const pages = {
     analyze:       <AnalyzePage prefilledTicker={prefilledTicker} isVercel={isVercel} onNavigate={handleNavigate} />,
-    watchlist:     <DashboardPage onAnalyzeTicker={handleAnalyzeTicker} onNavigate={handleNavigate} />,
+    watchlist:     <DashboardPage onAnalyzeTicker={handleAnalyzeTicker} onNavigate={handleNavigate} isAdmin={isAdmin} />,
     lbo:           <LBOPage />,
     ma:            <MAPage />,
-    notifications: <NotificationsPage />,
+    notifications: <NotificationsPage isAdmin={isAdmin} />,
     history:       <HistoryPage onAnalyzeTicker={handleAnalyzeTicker} />,
   };
 

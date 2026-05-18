@@ -301,6 +301,58 @@ body {
   background: var(--bg-surface-2);
 }
 
+/* ── Visitor Banner ──────────────────────────────────────────────────────────── */
+.visitor-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  background: var(--accent-primary-tint);
+  border: 1px solid rgba(0, 51, 102, 0.14);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+[data-theme="dark"] .visitor-banner {
+  background: rgba(75, 123, 219, 0.08);
+  border-color: rgba(75, 123, 219, 0.2);
+}
+.visitor-banner-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.visitor-banner-content {
+  flex: 1;
+  min-width: 0;
+}
+.visitor-banner-heading {
+  font-size: var(--text-body-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 3px;
+}
+.visitor-banner-body {
+  font-size: var(--text-body-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.visitor-banner-body a {
+  color: var(--accent-primary);
+  text-decoration: none;
+}
+.visitor-banner-body a:hover { text-decoration: underline; }
+.visitor-banner-dismiss {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 0 0 var(--space-2);
+  margin-top: -2px;
+}
+.visitor-banner-dismiss:hover { color: var(--text-primary); }
+
 /* ── About Modal ───────────────────────────────────────────────────────────── */
 .modal-backdrop {
   position: fixed;
