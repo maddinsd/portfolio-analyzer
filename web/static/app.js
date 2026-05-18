@@ -1539,7 +1539,7 @@ function HistoryPage({ onAnalyzeTicker }) {
 }
 
 // ── Sidebar ───────────────────────────────────────────────────────────────────
-function Sidebar({ page, onNavigate, theme, onToggleTheme }) {
+function Sidebar({ page, onNavigate, theme, onToggleTheme, onShowAbout }) {
   const items = [
     { id: "dashboard",     label: "Home",           icon: ICONS.Home },
     { id: "analyze",       label: "New Analysis",   icon: ICONS.BarChart },
@@ -1582,7 +1582,7 @@ function Sidebar({ page, onNavigate, theme, onToggleTheme }) {
         <div className="sidebar-avatar">SM</div>
         <div className="sidebar-user">
           <div className="sidebar-user-name">Samuel Madding</div>
-          <a href="/logout">Sign out</a>
+          <button className="about-link" onClick={onShowAbout}>About</button>
         </div>
         <button
           className="theme-toggle"
@@ -1600,17 +1600,70 @@ function Sidebar({ page, onNavigate, theme, onToggleTheme }) {
   );
 }
 
+// ── About Modal ───────────────────────────────────────────────────────────────
+function AboutModal({ onClose }) {
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-box" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <span className="modal-title">About this platform</span>
+          <button className="modal-close" onClick={onClose} aria-label="Close">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round"/>
+            </svg>
+          </button>
+        </div>
+        <div className="modal-body">
+          <p>Built by <strong>Sam Madding</strong>, finance student at the University of Cincinnati's Carl H. Lindner College of Business.</p>
+          <p>This is a personal research project — a full-stack equity research platform that generates institutional-quality analysis packages for any public company using live market data, SEC filings, and AI synthesis.</p>
+          <p>Analyses are rate-limited to 10 per hour per visitor and 20 per day total to manage API costs.</p>
+          <p style={{ color: "var(--text-tertiary)", fontSize: "var(--text-body-sm)" }}>Not affiliated with, sponsored by, or endorsed by the University of Cincinnati.</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Notice Card (dismissable) ─────────────────────────────────────────────────
+function NoticeCard() {
+  const DISMISSED_KEY = "lindner_notice_dismissed";
+  const [visible, setVisible] = useState(() => !localStorage.getItem(DISMISSED_KEY));
+
+  const dismiss = () => {
+    localStorage.setItem(DISMISSED_KEY, "1");
+    setVisible(false);
+  };
+
+  if (!visible) return null;
+
+  return (
+    <div className="notice-card">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, color: "var(--accent-primary)" }}>
+        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+      <span className="notice-text">
+        Personal research platform built by Sam Madding · University of Cincinnati · Analyses are rate limited to ensure availability
+      </span>
+      <button className="notice-dismiss" onClick={dismiss} aria-label="Dismiss">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+          <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round"/>
+        </svg>
+      </button>
+    </div>
+  );
+}
+
 // ── App root ──────────────────────────────────────────────────────────────────
 function App() {
   const [page,            setPage]            = useState("dashboard");
   const [prefilledTicker, setPrefilledTicker] = useState("");
   const [isVercel,        setIsVercel]        = useState(false);
   const [theme,           setTheme]           = useState(getInitialTheme);
+  const [showAbout,       setShowAbout]       = useState(false);
 
   // Wire up theme to <html data-theme>
   useEffect(() => {
     applyTheme(theme);
-    // Enable smooth transitions after mount (prevents flash on initial load)
     const t = setTimeout(() => {
       document.documentElement.classList.add("theme-transition");
     }, 150);
@@ -1620,6 +1673,14 @@ function App() {
   useEffect(() => {
     api("/api/config").then(d => setIsVercel(!!d.is_vercel)).catch(() => {});
   }, []);
+
+  // Close About modal on Escape
+  useEffect(() => {
+    if (!showAbout) return;
+    const handler = (e) => { if (e.key === "Escape") setShowAbout(false); };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [showAbout]);
 
   const handleAnalyzeTicker = useCallback((ticker) => {
     if (ticker) setPrefilledTicker(ticker);
@@ -1643,11 +1704,13 @@ function App() {
 
   return (
     <div className="app-shell">
-      <Sidebar page={page} onNavigate={handleNavigate} theme={theme} onToggleTheme={toggleTheme} />
+      <Sidebar page={page} onNavigate={handleNavigate} theme={theme} onToggleTheme={toggleTheme} onShowAbout={() => setShowAbout(true)} />
       <div className="content-area">
         <MarketBar />
+        {page === "dashboard" && <NoticeCard />}
         {pages[page]}
       </div>
+      {showAbout && <AboutModal onClose={() => setShowAbout(false)} />}
     </div>
   );
 }

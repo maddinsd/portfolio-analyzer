@@ -10,11 +10,10 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
-from functools import wraps
 from pathlib import Path
 
 from dotenv import load_dotenv
-from flask import (Flask, Response, jsonify, make_response, redirect,
+from flask import (Flask, Response, jsonify,
                    render_template, request, send_file, send_from_directory,
                    stream_with_context)
 from flask_cors import CORS
@@ -43,8 +42,6 @@ else:
     LBO_OUTPUTS = PROJECT_ROOT / "lbo" / "outputs"
     MA_OUTPUTS  = PROJECT_ROOT / "ma"  / "outputs"
     WATCHLIST   = PROJECT_ROOT / "automation" / "watchlist.json"
-
-APP_PASSWORD = os.environ.get("APP_PASSWORD", "lindner2026")
 
 app = Flask(__name__)
 CORS(app)
@@ -132,17 +129,6 @@ def _check_daily_limit() -> bool:
         _COUNTER_FILE.write_text(json.dumps(data))
         return True
 
-# ── Auth ─────────────────────────────────────────────────────────────────────
-def require_auth(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if request.cookies.get("auth") != APP_PASSWORD:
-            if request.path.startswith("/api/"):
-                return jsonify({"error": "unauthorized"}), 401
-            return redirect("/login")
-        return f(*args, **kwargs)
-    return decorated
-
 # ── Assets (project-root assets/ dir) ────────────────────────────────────────
 @app.route("/assets/<path:filename>")
 def serve_assets(filename):
@@ -152,28 +138,8 @@ def serve_assets(filename):
 
 # ── Pages ─────────────────────────────────────────────────────────────────────
 @app.route("/")
-@require_auth
 def index():
     return render_template("index.html")
-
-@app.route("/login", methods=["GET"])
-def login_page():
-    return render_template("login.html")
-
-@app.route("/login", methods=["POST"])
-def login_post():
-    pw = request.form.get("password", "")
-    if pw == APP_PASSWORD:
-        resp = make_response(redirect("/"))
-        resp.set_cookie("auth", APP_PASSWORD, httponly=True, samesite="Lax", max_age=28800)
-        return resp
-    return render_template("login.html", error="Invalid password"), 401
-
-@app.route("/logout")
-def logout():
-    resp = make_response(redirect("/login"))
-    resp.delete_cookie("auth")
-    return resp
 
 # ── Config ────────────────────────────────────────────────────────────────────
 @app.route("/api/config")
@@ -182,7 +148,6 @@ def api_config():
 
 # ── Quote ─────────────────────────────────────────────────────────────────────
 @app.route("/api/quote/<ticker>")
-@require_auth
 def api_quote(ticker):
     try:
         import yfinance as yf
@@ -410,7 +375,6 @@ def _analysis_thread(job_id: str, ticker: str, flags: list[str], audience: str):
         q.put({"error": str(e), "traceback": traceback.format_exc()})
 
 @app.route("/api/analyze", methods=["POST"])
-@require_auth
 def api_analyze():
     body     = request.get_json() or {}
     ticker   = body.get("ticker", "").upper().strip()
@@ -457,7 +421,6 @@ def _lbo_thread(job_id: str, ticker: str, entry_multiple, hold_years: int, debt_
         q.put({"error": str(e), "traceback": traceback.format_exc()})
 
 @app.route("/api/lbo", methods=["POST"])
-@require_auth
 def api_lbo():
     body          = request.get_json() or {}
     ticker        = body.get("ticker", "").upper().strip()
@@ -503,7 +466,6 @@ def _ma_thread(job_id: str, acquirer: str, target: str, premium_pct: float, cash
         q.put({"error": str(e), "traceback": traceback.format_exc()})
 
 @app.route("/api/ma", methods=["POST"])
-@require_auth
 def api_ma():
     body       = request.get_json() or {}
     acquirer   = body.get("acquirer", "").upper().strip()
@@ -574,7 +536,6 @@ def _education_thread(edu_job_id: str, analysis_job_id: str, ticker: str, audien
         q.put({"error": str(e), "traceback": traceback.format_exc()})
 
 @app.route("/api/education", methods=["POST"])
-@require_auth
 def api_education():
     """Streaming SSE endpoint for post-hoc education guide generation.
 
@@ -624,7 +585,6 @@ def api_education():
 
 # ── SSE progress stream ───────────────────────────────────────────────────────
 @app.route("/api/progress/<job_id>")
-@require_auth
 def api_progress(job_id):
     def generate():
         import time as _time
@@ -653,7 +613,6 @@ def api_progress(job_id):
 
 # ── Downloads ─────────────────────────────────────────────────────────────────
 @app.route("/api/download/<ticker>/<filename>")
-@require_auth
 def api_download(ticker, filename):
     path = REPORTS_DIR / ticker / filename
     if not path.exists():
@@ -661,7 +620,6 @@ def api_download(ticker, filename):
     return send_file(str(path), as_attachment=True, download_name=filename)
 
 @app.route("/api/download/lbo/<filename>")
-@require_auth
 def api_download_lbo(filename):
     path = LBO_OUTPUTS / filename
     if not path.exists():
@@ -669,7 +627,6 @@ def api_download_lbo(filename):
     return send_file(str(path), as_attachment=True, download_name=filename)
 
 @app.route("/api/download/ma/<filename>")
-@require_auth
 def api_download_ma(filename):
     path = MA_OUTPUTS / filename
     if not path.exists():
@@ -677,7 +634,6 @@ def api_download_ma(filename):
     return send_file(str(path), as_attachment=True, download_name=filename)
 
 @app.route("/api/download/job/<job_id>/<ticker>/<filename>")
-@require_auth
 def api_download_job(job_id, ticker, filename):
     """Vercel-compatible download: reads from job-specific /tmp dir or local REPORTS_DIR."""
     if IS_VERCEL:
@@ -690,7 +646,6 @@ def api_download_job(job_id, ticker, filename):
 
 # ── History ───────────────────────────────────────────────────────────────────
 @app.route("/api/history")
-@require_auth
 def api_history():
     if IS_VERCEL:
         return jsonify({"vercel_mode": True, "items": []})
@@ -721,14 +676,12 @@ def api_history():
 
 # ── Watchlist ─────────────────────────────────────────────────────────────────
 @app.route("/api/watchlist", methods=["GET"])
-@require_auth
 def api_watchlist_get():
     if WATCHLIST.exists():
         return jsonify(json.loads(WATCHLIST.read_text()))
     return jsonify({"tickers": [], "thresholds": {}, "alert_types": {}})
 
 @app.route("/api/watchlist", methods=["POST"])
-@require_auth
 def api_watchlist_post():
     data = request.get_json() or {}
     WATCHLIST.write_text(json.dumps(data, indent=2))
@@ -736,7 +689,6 @@ def api_watchlist_post():
 
 # ── Watchlist live quotes ─────────────────────────────────────────────────────
 @app.route("/api/watchlist/quotes")
-@require_auth
 def api_watchlist_quotes():
     if WATCHLIST.exists():
         wl = json.loads(WATCHLIST.read_text())
@@ -777,7 +729,6 @@ def api_watchlist_quotes():
 
 # ── Recent alerts ─────────────────────────────────────────────────────────────
 @app.route("/api/alerts/recent")
-@require_auth
 def api_alerts_recent():
     cache_file = PROJECT_ROOT / "automation" / ".alert_cache.json"
     if not cache_file.exists():
@@ -819,7 +770,6 @@ def _is_market_open_py() -> bool:
     return 9 * 60 + 30 <= mins < 16 * 60
 
 @app.route("/api/market-bar")
-@require_auth
 def api_market_bar():
     """Fetch S&P 500 (SPY), VIX (^VIX), and 10yr yield (^TNX) for the market status bar."""
     def _fetch(ticker, label, is_yield=False):
@@ -859,7 +809,6 @@ def api_market_bar():
 
 # ── Test notification ─────────────────────────────────────────────────────────
 @app.route("/api/notify/test", methods=["POST"])
-@require_auth
 def api_notify_test():
     try:
         import requests as req
