@@ -771,12 +771,12 @@ def _is_market_open_py() -> bool:
 
 @app.route("/api/market-bar")
 def api_market_bar():
-    """Fetch S&P 500 (SPY), VIX (^VIX), and 10yr yield (^TNX) for the market status bar."""
+    """Fetch S&P 500 (^GSPC), VIX (^VIX), and 10yr yield (^TNX) for the market status bar."""
     def _fetch(ticker, label, is_yield=False):
         try:
             import yfinance as yf
             info = yf.Ticker(ticker).info
-            price = info.get("currentPrice") or info.get("regularMarketPrice") or info.get("previousClose")
+            price = info.get("regularMarketPrice") or info.get("currentPrice") or info.get("previousClose")
             change_pct = info.get("regularMarketChangePercent") or 0
             change = info.get("regularMarketChange") or 0
             if price is None:
@@ -794,7 +794,7 @@ def api_market_bar():
             return {"label": label, "ticker": ticker, "error": str(ex)}
 
     with ThreadPoolExecutor(max_workers=3) as pool:
-        f_spx = pool.submit(_fetch, "SPY",  "S&P 500")
+        f_spx = pool.submit(_fetch, "^GSPC", "S&P 500")
         f_vix = pool.submit(_fetch, "^VIX", "VIX")
         f_tsy = pool.submit(_fetch, "^TNX", "10yr", True)
 
@@ -841,22 +841,53 @@ def api_feedback():
     if not message:
         return jsonify({"error": "Message required"}), 400
 
-    name = (data.get("name") or "Anonymous").strip() or "Anonymous"
-    page = request.headers.get("Referer", "unknown")
+    name      = (data.get("name") or "Anonymous").strip() or "Anonymous"
+    page      = request.headers.get("Referer", "unknown")
+    timestamp = datetime.now().isoformat()
 
-    entry = {
-        "timestamp": datetime.now().isoformat(),
-        "name": name,
-        "message": message,
-        "page": page,
-    }
+    entry = {"timestamp": timestamp, "name": name, "message": message, "page": page}
+
+    # Log to feedback.json (always, never crash)
     try:
         with open(_FEEDBACK_FILE, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
     except Exception:
-        pass  # Never crash on feedback logging failure
+        pass
+
+    # Send email via iCloud SMTP (best-effort — failure never surfaces to user)
+    _send_feedback_email(name, message, page, timestamp)
 
     return jsonify({"ok": True})
+
+
+def _send_feedback_email(name: str, message: str, page: str, timestamp: str) -> None:
+    import smtplib
+    from email.message import EmailMessage
+
+    icloud_email    = os.environ.get("ICLOUD_EMAIL", "").strip()
+    icloud_password = os.environ.get("ICLOUD_APP_PASSWORD", "").strip()
+    if not icloud_email or not icloud_password:
+        return  # Env vars not configured — skip silently
+
+    try:
+        msg = EmailMessage()
+        msg["Subject"] = f"Lindner Platform Feedback — {name}"
+        msg["From"]    = icloud_email
+        msg["To"]      = icloud_email
+        msg.set_content(
+            f"Name: {name}\n"
+            f"Message: {message}\n"
+            f"Page: {page}\n"
+            f"Time: {timestamp}\n"
+        )
+        with smtplib.SMTP("smtp.mail.me.com", 587, timeout=10) as smtp:
+            smtp.ehlo()
+            smtp.starttls()
+            smtp.login(icloud_email, icloud_password)
+            smtp.send_message(msg)
+        print(f"[feedback] email sent for '{name}'", file=sys.stderr)
+    except Exception as ex:
+        print(f"[feedback] email failed (non-fatal): {ex}", file=sys.stderr)
 
 
 # ── Error handlers ─────────────────────────────────────────────────────────────
