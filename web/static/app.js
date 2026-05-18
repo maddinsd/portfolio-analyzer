@@ -1593,6 +1593,9 @@ function Sidebar({ page, onNavigate, theme, onToggleTheme }) {
           {theme === "dark" ? ICONS.Sun({ size: 14 }) : ICONS.Moon({ size: 14 })}
         </button>
       </div>
+      <div className="sidebar-disclaimer">
+        Sam Madding is a student at the University of Cincinnati. This project is not affiliated with, sponsored by, or endorsed by the University of Cincinnati.
+      </div>
     </nav>
   );
 }
