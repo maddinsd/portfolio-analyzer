@@ -9,7 +9,7 @@ import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -824,6 +824,51 @@ def api_notify_test():
     except Exception as e:
         print(f"[ntfy] test push FAILED: {e}", file=sys.stderr)
         return jsonify({"ok": False, "error": str(e)}), 500
+
+# ── OG image ──────────────────────────────────────────────────────────────────
+@app.route("/og-image.png")
+def og_image():
+    return send_from_directory("static", "og-image.png")
+
+
+# ── Feedback ───────────────────────────────────────────────────────────────────
+_FEEDBACK_FILE = _this_dir / "feedback.json"
+
+@app.route("/api/feedback", methods=["POST"])
+def api_feedback():
+    data = request.get_json(silent=True) or {}
+    message = (data.get("message") or "").strip()
+    if not message:
+        return jsonify({"error": "Message required"}), 400
+
+    name = (data.get("name") or "Anonymous").strip() or "Anonymous"
+    page = request.headers.get("Referer", "unknown")
+
+    entry = {
+        "timestamp": datetime.now().isoformat(),
+        "name": name,
+        "message": message,
+        "page": page,
+    }
+    try:
+        with open(_FEEDBACK_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception:
+        pass  # Never crash on feedback logging failure
+
+    return jsonify({"ok": True})
+
+
+# ── Error handlers ─────────────────────────────────────────────────────────────
+@app.errorhandler(404)
+def not_found(e):
+    return render_template("404.html"), 404
+
+
+@app.errorhandler(500)
+def server_error(e):
+    return render_template("500.html"), 500
+
 
 if __name__ == "__main__":
     app.run(debug=True, port=5001, threaded=True)

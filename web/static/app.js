@@ -766,14 +766,18 @@ function AnalyzePage({ prefilledTicker, isVercel, onNavigate }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ticker, flags, audience }),
       });
-      if (data.error) { alert(data.error); setLoading(false); return; }
+      if (data.error) { window.toast && window.toast.error(data.error); setLoading(false); return; }
       setJobId(data.job_id);
       setPhase("progress");
-    } catch { alert("Failed to start analysis"); }
+    } catch { window.toast && window.toast.error("Failed to start analysis"); }
     setLoading(false);
   };
 
-  const handleDone = (msg) => { setResult(msg); setPhase("results"); };
+  const handleDone = (msg) => {
+    setResult(msg);
+    setPhase("results");
+    window.toast && window.toast.success("Analysis complete — files ready to download");
+  };
   const handleReset = () => { setPhase("input"); setTicker(""); setResult(null); setJobId(null); };
 
   const isFull = flags.includes("--full");
@@ -799,7 +803,7 @@ function AnalyzePage({ prefilledTicker, isVercel, onNavigate }) {
               <label className="field-label">Ticker Symbol</label>
               <div className="input-row">
                 <input
-                  className={`input input-hero ${quote?.valid ? "valid" : ticker.length > 0 && !qLoading && quote ? "invalid" : ""}`}
+                  className={`input input-hero ticker-input ${quote?.valid ? "valid" : ticker.length > 0 && !qLoading && quote ? "invalid" : ""}`}
                   value={ticker}
                   onChange={e => setTicker(e.target.value.toUpperCase())}
                   placeholder="AAPL, NVDA, LLY…"
@@ -915,9 +919,9 @@ function LBOPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ticker, entry_multiple: entryMult || null, hold_years: holdYears, debt_pct: debtPct / 100 }),
       });
-      if (data.error) { alert(data.error); setLoading(false); return; }
+      if (data.error) { window.toast && window.toast.error(data.error); setLoading(false); return; }
       setJobId(data.job_id); setPhase("progress");
-    } catch { alert("Failed to start LBO"); }
+    } catch { window.toast && window.toast.error("Failed to start LBO"); }
     setLoading(false);
   };
 
@@ -1083,9 +1087,9 @@ function MAPage() {
         body: JSON.stringify({ acquirer: acq, target: tgt, premium_pct: premium, cash_pct: cashPct,
           synergies_m: synergies ? parseFloat(synergies) : null }),
       });
-      if (data.error) { alert(data.error); setLoading(false); return; }
+      if (data.error) { window.toast && window.toast.error(data.error); setLoading(false); return; }
       setJobId(data.job_id); setPhase("progress");
-    } catch { alert("Failed to start M&A model"); }
+    } catch { window.toast && window.toast.error("Failed to start M&A model"); }
     setLoading(false);
   };
 
@@ -1621,27 +1625,287 @@ function Sidebar({ page, onNavigate, theme, onToggleTheme, onShowAbout, onLaunch
 }
 
 // ── About Modal ───────────────────────────────────────────────────────────────
+const TECH_STACK = [
+  "Python", "Flask", "Claude AI", "yfinance", "FMP API",
+  "SEC EDGAR", "NewsAPI", "reportlab", "openpyxl", "Vercel",
+];
+
 function AboutModal({ onClose }) {
+  useEffect(() => {
+    const handler = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose]);
+
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-box" onClick={e => e.stopPropagation()}>
+    <div className="modal-backdrop" onClick={onClose} role="dialog" aria-modal="true" aria-label="About this platform">
+      <div className="about-modal-box" onClick={e => e.stopPropagation()}>
+        {/* Close */}
+        <button className="modal-close about-modal-close" onClick={onClose} aria-label="Close">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round"/>
+          </svg>
+        </button>
+
+        {/* Hero */}
+        <div className="about-hero">
+          <div className="about-logo-mark">L</div>
+          <div className="about-hero-name">Lindner Research Platform</div>
+          <div className="about-hero-sub">AI-powered equity research for any public company</div>
+        </div>
+
+        {/* Platform description */}
+        <div className="about-section">
+          <p className="about-body">
+            A full-stack AI research tool that generates institutional-grade equity analysis for any public company.
+            Enter a ticker and receive a DCF model, comparable company analysis, SEC filing review, insider transaction
+            tracking, earnings history, a 12-slide pitch deck, and a 10-page research PDF — all in under 60 seconds.
+          </p>
+          <p className="about-body about-note">
+            Analyses are rate-limited to 10 per hour per visitor and 20 per day total to manage API costs.
+          </p>
+        </div>
+
+        <div className="about-divider" />
+
+        {/* Builder card */}
+        <div className="about-builder-card">
+          <div className="about-avatar">SM</div>
+          <div className="about-builder-info">
+            <div className="about-builder-name">Sam Madding</div>
+            <div className="about-builder-detail">Finance · University of Cincinnati · Carl H. Lindner College of Business</div>
+          </div>
+          <div className="about-links">
+            <a href="https://linkedin.com/in/sam-madding" target="_blank" rel="noopener noreferrer"
+               className="about-link-btn" aria-label="LinkedIn profile" title="LinkedIn">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-2-2 2 2 0 00-2 2v7h-4v-7a6 6 0 016-6zM2 9h4v12H2z"/>
+                <circle cx="4" cy="4" r="2"/>
+              </svg>
+            </a>
+            <a href="https://github.com/maddinsd/portfolio-analyzer" target="_blank" rel="noopener noreferrer"
+               className="about-link-btn" aria-label="GitHub repository" title="GitHub">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 00-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0020 4.77 5.07 5.07 0 0019.91 1S18.73.65 16 2.48a13.38 13.38 0 00-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 005 4.77a5.44 5.44 0 00-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 009 18.13V22"/>
+              </svg>
+            </a>
+          </div>
+        </div>
+
+        <div className="about-divider" />
+
+        {/* Tech stack */}
+        <div className="about-stack-label">Built with</div>
+        <div className="about-stack-pills">
+          {TECH_STACK.map(t => <span key={t} className="about-stack-pill">{t}</span>)}
+        </div>
+
+        {/* Disclaimer */}
+        <p className="about-disclaimer">
+          Sam Madding is a student at the University of Cincinnati. This project is not affiliated with,
+          sponsored by, or endorsed by the University of Cincinnati.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ── Feedback Button & Modal ────────────────────────────────────────────────────
+function FeedbackModal({ onClose }) {
+  const [message, setMessage] = useState("");
+  const [name,    setName]    = useState("");
+  const [sending, setSending] = useState(false);
+
+  useEffect(() => {
+    const handler = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!message.trim()) return;
+    setSending(true);
+    try {
+      const res = await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: message.trim(), name: name.trim() }),
+      });
+      if (res.ok) {
+        window.toast && window.toast.success("Feedback sent — thanks!");
+        onClose();
+      } else {
+        window.toast && window.toast.error("Couldn't send feedback. Try again.");
+      }
+    } catch {
+      window.toast && window.toast.error("Network error. Try again.");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onClose} role="dialog" aria-modal="true" aria-label="Send feedback">
+      <div className="modal-box feedback-modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <span className="modal-title">About this platform</span>
+          <span className="modal-title">Send Feedback</span>
           <button className="modal-close" onClick={onClose} aria-label="Close">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
               <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round"/>
             </svg>
           </button>
         </div>
-        <div className="modal-body">
-          <p>Built by <strong>Sam Madding</strong>, finance student at the University of Cincinnati's Carl H. Lindner College of Business.</p>
-          <p>This is a personal research project — a full-stack equity research platform that generates institutional-quality analysis packages for any public company using live market data, SEC filings, and AI synthesis.</p>
-          <p>Analyses are rate-limited to 10 per hour per visitor and 20 per day total to manage API costs.</p>
-          <p style={{ color: "var(--text-tertiary)", fontSize: "var(--text-body-sm)" }}>Not affiliated with, sponsored by, or endorsed by the University of Cincinnati.</p>
+        <form className="modal-body feedback-form" onSubmit={handleSubmit}>
+          <div className="feedback-field">
+            <label className="feedback-label" htmlFor="fb-message">What's on your mind?</label>
+            <textarea
+              id="fb-message"
+              className="feedback-textarea"
+              placeholder="Bugs, ideas, questions, or anything else..."
+              value={message}
+              onChange={e => setMessage(e.target.value)}
+              required
+              rows={4}
+            />
+          </div>
+          <div className="feedback-field">
+            <label className="feedback-label" htmlFor="fb-name">Your name <span className="feedback-optional">(optional)</span></label>
+            <input
+              id="fb-name"
+              type="text"
+              className="feedback-input"
+              placeholder="Sam Madding"
+              value={name}
+              onChange={e => setName(e.target.value)}
+            />
+          </div>
+          <button type="submit" className="feedback-submit" disabled={!message.trim() || sending}>
+            {sending ? "Sending…" : "Send Feedback →"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function FeedbackButton() {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        id="feedback-btn"
+        className="feedback-fab"
+        onClick={() => setOpen(true)}
+        aria-label="Send feedback"
+        title="Send feedback"
+      >
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="feedback-fab-icon">
+          <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+        </svg>
+        <span className="feedback-fab-label">Feedback</span>
+      </button>
+      {open && <FeedbackModal onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
+// ── Keyboard Shortcuts ────────────────────────────────────────────────────────
+const SHORTCUTS = [
+  { keys: ["/"],        action: "Focus ticker input" },
+  { keys: ["d"],        action: "Toggle dark mode" },
+  { keys: ["?"],        action: "Show keyboard shortcuts" },
+  { keys: ["Esc"],      action: "Close modal" },
+  { keys: ["g", "h"],   action: "Go to Home" },
+  { keys: ["g", "w"],   action: "Go to Watchlist" },
+  { keys: ["g", "l"],   action: "Go to LBO Calculator" },
+  { keys: ["g", "m"],   action: "Go to M&A Builder" },
+];
+
+function ShortcutsModal({ onClose }) {
+  useEffect(() => {
+    const handler = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  return (
+    <div className="modal-backdrop" onClick={onClose} role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
+      <div className="modal-box shortcuts-modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <span className="modal-title">Keyboard Shortcuts</span>
+          <button className="modal-close" onClick={onClose} aria-label="Close">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round"/>
+            </svg>
+          </button>
+        </div>
+        <div className="modal-body shortcuts-body">
+          <table className="shortcuts-table">
+            <tbody>
+              {SHORTCUTS.map((s, i) => (
+                <tr key={i} className="shortcuts-row">
+                  <td className="shortcuts-keys">
+                    {s.keys.map((k, j) => (
+                      <span key={j}>
+                        <kbd className="kbd">{k}</kbd>
+                        {j < s.keys.length - 1 && <span className="kbd-then">then</span>}
+                      </span>
+                    ))}
+                  </td>
+                  <td className="shortcuts-action">{s.action}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="shortcuts-hint">Press <kbd className="kbd">?</kbd> to close</p>
         </div>
       </div>
     </div>
   );
+}
+
+function useKeyboardShortcuts({ onNavigate, onToggleTheme, onShowShortcuts, showShortcuts }) {
+  const gRef = useRef(null); // tracks pending "g" prefix
+
+  useEffect(() => {
+    const handler = (e) => {
+      const tag = document.activeElement?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (document.activeElement?.isContentEditable) return;
+
+      const key = e.key;
+
+      // Escape closes any open modal — handled by individual modals already,
+      // but also clear the "g" prefix state here.
+      if (key === "Escape") { gRef.current = null; return; }
+
+      // "g" prefix navigation
+      if (gRef.current === "g") {
+        gRef.current = null;
+        if (key === "h") { onNavigate("analyze");       return; }
+        if (key === "w") { onNavigate("watchlist");     return; }
+        if (key === "l") { onNavigate("lbo");           return; }
+        if (key === "m") { onNavigate("ma");            return; }
+        return;
+      }
+
+      if (key === "g") { gRef.current = "g"; setTimeout(() => { gRef.current = null; }, 600); return; }
+      if (key === "d") { onToggleTheme(); return; }
+      if (key === "?") { onShowShortcuts(); return; }
+      if (key === "/") {
+        e.preventDefault();
+        onNavigate("analyze");
+        setTimeout(() => {
+          const input = document.querySelector(".ticker-input");
+          if (input) input.focus();
+        }, 80);
+        return;
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onNavigate, onToggleTheme, onShowShortcuts]);
 }
 
 // ── Onboarding Tour ───────────────────────────────────────────────────────────
@@ -1863,8 +2127,8 @@ function App() {
   const [theme,           setTheme]           = useState(getInitialTheme);
   const [showAbout,       setShowAbout]       = useState(false);
   const [showTour,        setShowTour]        = useState(shouldShowTour);
+  const [showShortcuts,   setShowShortcuts]   = useState(false);
 
-  // Wire up theme to <html data-theme>
   useEffect(() => {
     applyTheme(theme);
     const t = setTimeout(() => {
@@ -1877,17 +2141,9 @@ function App() {
     api("/api/config").then(d => setIsVercel(!!d.is_vercel)).catch(() => {});
   }, []);
 
-  // Close About modal on Escape
-  useEffect(() => {
-    if (!showAbout) return;
-    const handler = (e) => { if (e.key === "Escape") setShowAbout(false); };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [showAbout]);
-
   const handleAnalyzeTicker = useCallback((ticker) => {
     if (ticker) setPrefilledTicker(ticker);
-    setPage("analyze"); // "analyze" is now the home/root page
+    setPage("analyze");
   }, []);
 
   const handleNavigate = useCallback((p) => setPage(p), []);
@@ -1895,6 +2151,13 @@ function App() {
   const toggleTheme = useCallback(() => {
     setTheme(t => t === "dark" ? "light" : "dark");
   }, []);
+
+  useKeyboardShortcuts({
+    onNavigate: handleNavigate,
+    onToggleTheme: toggleTheme,
+    onShowShortcuts: () => setShowShortcuts(s => !s),
+    showShortcuts,
+  });
 
   const pages = {
     analyze:       <AnalyzePage prefilledTicker={prefilledTicker} isVercel={isVercel} onNavigate={handleNavigate} />,
@@ -1913,8 +2176,10 @@ function App() {
         {page === "analyze" && <NoticeCard />}
         {pages[page]}
       </div>
-      {showAbout && <AboutModal onClose={() => setShowAbout(false)} />}
-      {showTour  && <OnboardingTour onClose={() => setShowTour(false)} />}
+      <FeedbackButton />
+      {showAbout     && <AboutModal     onClose={() => setShowAbout(false)} />}
+      {showTour      && <OnboardingTour onClose={() => setShowTour(false)} />}
+      {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} />}
     </div>
   );
 }

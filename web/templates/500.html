@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Server Error — Lindner Research Platform</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="stylesheet" href="/static/design-system.css">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      height: 100%;
+      font-family: var(--font-sans);
+      background: var(--bg-base);
+      color: var(--text-primary);
+    }
+    .error-shell {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 32px 24px;
+    }
+    .error-card {
+      background: var(--bg-surface);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow-lg);
+      padding: 48px 48px 40px;
+      max-width: 480px;
+      width: 100%;
+      text-align: center;
+    }
+    .error-logo {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      background: var(--accent-primary);
+      color: white;
+      font-size: 22px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 24px;
+      letter-spacing: -0.5px;
+    }
+    .error-code {
+      font-size: var(--text-heading-lg);
+      font-weight: 700;
+      color: var(--border-strong);
+      letter-spacing: -0.04em;
+      line-height: 1;
+      margin-bottom: 16px;
+    }
+    .error-heading {
+      font-size: var(--text-subheading);
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 12px;
+      letter-spacing: -0.01em;
+    }
+    .error-body {
+      font-size: var(--text-body);
+      color: var(--text-secondary);
+      line-height: 1.55;
+      margin-bottom: 32px;
+    }
+    .error-body a {
+      color: var(--accent-primary);
+      text-decoration: none;
+    }
+    .error-actions {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .error-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--accent-primary);
+      color: white;
+      text-decoration: none;
+      padding: 12px 24px;
+      border-radius: var(--radius-md);
+      font-size: var(--text-body);
+      font-weight: 600;
+      font-family: var(--font-sans);
+      border: none;
+      cursor: pointer;
+      transition: opacity 150ms ease, transform 150ms ease;
+    }
+    .error-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+    .error-btn-secondary {
+      background: var(--bg-surface-2);
+      color: var(--text-primary);
+      border: 1px solid var(--border);
+    }
+    .error-btn-secondary:hover { background: var(--border); opacity: 1; }
+    .error-divider {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 28px 0 20px;
+    }
+    .error-footer {
+      font-size: var(--text-caption);
+      color: var(--text-tertiary);
+    }
+  </style>
+</head>
+<body>
+  <div class="error-shell">
+    <div class="error-card">
+      <div class="error-logo">L</div>
+      <div class="error-code">500</div>
+      <div class="error-heading">Something went wrong</div>
+      <p class="error-body">
+        An unexpected error occurred. Try refreshing the page — if it persists,
+        contact Sam at <a href="mailto:sdmadding@icloud.com">sdmadding@icloud.com</a>.
+      </p>
+      <div class="error-actions">
+        <a href="/" class="error-btn">← Go Home</a>
+        <button class="error-btn error-btn-secondary" onclick="window.location.reload()">Try Again</button>
+      </div>
+      <hr class="error-divider">
+      <p class="error-footer">Lindner Research Platform · Built by Sam Madding · University of Cincinnati</p>
+    </div>
+  </div>
+</body>
+</html>
