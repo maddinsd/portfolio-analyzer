@@ -1,0 +1,199 @@
+/* ══════════════════════════════════════════════════════════════════════════════
+   LINDNER RESEARCH PLATFORM — Design System v2.0
+   Single source of truth for all tokens. Every other stylesheet imports this.
+   Stripe principle: foundation first. Never use hardcoded values.
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Google Fonts: Inter ───────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+/* ── Light Mode Tokens ─────────────────────────────────────────────────────── */
+:root {
+  /* Typography scale (Stripe-derived) */
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", sans-serif;
+  --text-caption:     11px;
+  --text-body-sm:     12px;
+  --text-body:        14px;
+  --text-body-md:     15px;
+  --text-subheading:  18px;
+  --text-heading-sm:  22px;
+  --text-heading:     28px;
+  --text-heading-lg:  36px;
+  --lh-tight:         1.15;
+  --lh-snug:          1.25;
+  --lh-normal:        1.5;
+  --ls-tight:         -0.02em;
+  --ls-snug:          -0.01em;
+  --ls-wide:          0.03em;
+
+  /* 8px grid spacing — no other values allowed */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Border radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+
+  /* Elevation (Stripe-derived — NO hard shadows) */
+  --shadow-sm:    0 1px 2px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.1);
+  --shadow-md:    0 4px 6px rgba(0,0,0,0.05), 0 10px 15px rgba(0,0,0,0.08);
+  --shadow-lg:    0 10px 25px rgba(0,0,0,0.08), 0 20px 48px rgba(0,0,0,0.06);
+  --shadow-focus: 0 0 0 3px rgba(0,51,102,0.18);
+  --shadow-focus-error: 0 0 0 3px rgba(220,38,38,0.18);
+
+  /* Animation tokens */
+  --dur-fast:   100ms;
+  --dur-normal: 200ms;
+  --dur-slow:   350ms;
+  --ease-out:   cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring:cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-std:   cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* === LIGHT MODE COLORS === */
+  --bg-base:      #F7F8FA;
+  --bg-surface:   #FFFFFF;
+  --bg-surface-2: #F0F2F5;
+  --bg-nav:       #E00122;    /* UC Red — sidebar brand */
+  --bg-nav-dark:  #C0011E;    /* darker red for hover in sidebar */
+
+  --border:       #E4E7EC;
+  --border-strong:#C9CDD6;
+
+  --text-primary:    #111827;
+  --text-secondary:  #4B5563;
+  --text-tertiary:   #9CA3AF;
+  --text-nav:        rgba(255,255,255,0.82);
+  --text-nav-active: #FFFFFF;
+
+  --accent-primary:       #003366;  /* UC Navy — buttons, links, active */
+  --accent-primary-hover: #002855;
+  --accent-primary-tint:  rgba(0,51,102,0.06);
+  --accent-red:           #E00122;  /* UC Red — sidebar/alerts ONLY */
+
+  --success:        #16A34A;
+  --success-bg:     #F0FDF4;
+  --success-border: #BBF7D0;
+  --success-text:   #15803D;
+
+  --warning:        #D97706;
+  --warning-bg:     #FFFBEB;
+  --warning-border: #FDE68A;
+  --warning-text:   #B45309;
+
+  --error:          #DC2626;
+  --error-bg:       #FEF2F2;
+  --error-border:   #FECACA;
+  --error-text:     #B91C1C;
+
+  /* Backward compatibility aliases — map old names to new tokens */
+  --bg:           var(--bg-base);
+  --surface:      var(--bg-surface);
+  --surface-hover:var(--bg-surface-2);
+  --navy:         var(--accent-primary);
+  --navy-dark:    var(--accent-primary-hover);
+  --navy-light:   #004080;
+  --red:          var(--accent-red);
+  --green:        var(--success);
+  --green-bg:     var(--success-bg);
+  --green-text:   var(--success-text);
+  --orange:       var(--warning);
+  --orange-bg:    var(--warning-bg);
+  --orange-text:  var(--warning-text);
+  --red-apple:    var(--error);
+  --red-bg:       var(--error-bg);
+  --red-text:     var(--error-text);
+  --border-strong:var(--border-strong);
+  --radius:       12px;
+  --radius-xs:    var(--radius-sm);
+  --sidebar-w:    240px;
+}
+
+/* ── Dark Mode Tokens ──────────────────────────────────────────────────────── */
+[data-theme="dark"] {
+  --bg-base:      #0F1117;
+  --bg-surface:   #1A1D27;
+  --bg-surface-2: #252836;
+  --bg-nav:       #1A0004;    /* Very dark red for sidebar in dark mode */
+  --bg-nav-dark:  #120003;
+
+  --border:       #2D3148;
+  --border-strong:#3D4166;
+
+  --text-primary:    #F9FAFB;
+  --text-secondary:  #9CA3AF;
+  --text-tertiary:   #6B7280;
+  --text-nav:        rgba(255,255,255,0.7);
+  --text-nav-active: #FFFFFF;
+
+  --accent-primary:       #4B7BDB;
+  --accent-primary-hover: #3B6BC8;
+  --accent-primary-tint:  rgba(75,123,219,0.1);
+
+  --success:       #34D399;
+  --success-bg:    rgba(52,211,153,0.1);
+  --success-text:  #34D399;
+  --success-border:rgba(52,211,153,0.3);
+
+  --warning:       #FBBF24;
+  --warning-bg:    rgba(251,191,36,0.1);
+  --warning-text:  #FBBF24;
+  --warning-border:rgba(251,191,36,0.3);
+
+  --error:         #F87171;
+  --error-bg:      rgba(248,113,113,0.1);
+  --error-text:    #F87171;
+  --error-border:  rgba(248,113,113,0.3);
+
+  --shadow-sm:    0 1px 2px rgba(0,0,0,0.3), 0 1px 3px rgba(0,0,0,0.4);
+  --shadow-md:    0 4px 6px rgba(0,0,0,0.3), 0 10px 15px rgba(0,0,0,0.3);
+  --shadow-lg:    0 10px 25px rgba(0,0,0,0.4), 0 20px 48px rgba(0,0,0,0.3);
+  --shadow-focus: 0 0 0 3px rgba(75,123,219,0.3);
+
+  /* Backward compat aliases — dark mode overrides */
+  --bg:           var(--bg-base);
+  --surface:      var(--bg-surface);
+  --surface-hover:var(--bg-surface-2);
+  --navy:         var(--accent-primary);
+  --navy-dark:    var(--accent-primary-hover);
+  --navy-light:   #5A8AE6;
+  --green:        var(--success);
+  --green-bg:     var(--success-bg);
+  --green-text:   var(--success-text);
+  --orange:       var(--warning);
+  --orange-bg:    var(--warning-bg);
+  --orange-text:  var(--warning-text);
+  --red-apple:    var(--error);
+  --red-bg:       var(--error-bg);
+  --red-text:     var(--error-text);
+}
+
+/* ── Theme Transition (applied after mount to avoid flash) ─────────────────── */
+html.theme-transition,
+html.theme-transition *,
+html.theme-transition *::before,
+html.theme-transition *::after {
+  transition:
+    background-color var(--dur-normal) var(--ease-std),
+    color var(--dur-normal) var(--ease-std),
+    border-color var(--dur-normal) var(--ease-std),
+    box-shadow var(--dur-normal) var(--ease-std) !important;
+}
+
+/* ── Reduced Motion ────────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

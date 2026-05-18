@@ -808,6 +808,55 @@ def _extract_rating(ticker_dir: Path):
         return None, None
 
 
+# ── Market Bar ───────────────────────────────────────────────────────────────
+def _is_market_open_py() -> bool:
+    from datetime import datetime, timezone, timedelta
+    et = timezone(timedelta(hours=-4))  # EDT approximation
+    now = datetime.now(et)
+    if now.weekday() >= 5:
+        return False
+    mins = now.hour * 60 + now.minute
+    return 9 * 60 + 30 <= mins < 16 * 60
+
+@app.route("/api/market-bar")
+@require_auth
+def api_market_bar():
+    """Fetch S&P 500 (SPY), VIX (^VIX), and 10yr yield (^TNX) for the market status bar."""
+    def _fetch(ticker, label, is_yield=False):
+        try:
+            import yfinance as yf
+            info = yf.Ticker(ticker).info
+            price = info.get("currentPrice") or info.get("regularMarketPrice") or info.get("previousClose")
+            change_pct = info.get("regularMarketChangePercent") or 0
+            change = info.get("regularMarketChange") or 0
+            if price is None:
+                return {"label": label, "error": "no data"}
+            val = round(float(price), 2)
+            return {
+                "label": label,
+                "ticker": ticker,
+                "price": val,
+                "change": round(float(change), 2),
+                "change_pct": round(float(change_pct), 2),
+                "is_yield": is_yield,
+            }
+        except Exception as ex:
+            return {"label": label, "ticker": ticker, "error": str(ex)}
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        f_spx = pool.submit(_fetch, "SPY",  "S&P 500")
+        f_vix = pool.submit(_fetch, "^VIX", "VIX")
+        f_tsy = pool.submit(_fetch, "^TNX", "10yr", True)
+
+    return jsonify({
+        "spx": f_spx.result(),
+        "vix": f_vix.result(),
+        "tsy": f_tsy.result(),
+        "market_open": _is_market_open_py(),
+        "timestamp": time.time(),
+    })
+
+
 # ── Test notification ─────────────────────────────────────────────────────────
 @app.route("/api/notify/test", methods=["POST"])
 @require_auth

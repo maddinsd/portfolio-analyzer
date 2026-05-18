@@ -1,27 +1,18 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Lindner Research — Sign In</title>
+  <link rel="stylesheet" href="/static/design-system.css">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-    :root {
-      --navy: #003366;
-      --red:  #E00122;
-      --bg:   #F5F5F7;
-      --border: #E5E5EA;
-      --text: #1D1D1F;
-      --muted: #6E6E73;
-    }
-
-    html, body { height: 100%; }
-
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", sans-serif;
-      background: var(--bg);
-      color: var(--text);
+    html, body {
+      height: 100%;
+      font-family: var(--font-sans);
+      background: var(--bg-base);
+      color: var(--text-primary);
       -webkit-font-smoothing: antialiased;
     }
 
@@ -32,14 +23,14 @@
 
     /* ── Left panel (form) ── */
     .login-left {
-      flex: 1;
+      flex: 0 0 480px;
       display: flex;
       flex-direction: column;
       justify-content: center;
       align-items: center;
-      padding: 48px 40px;
-      background: #FFFFFF;
-      max-width: 520px;
+      padding: var(--space-12) var(--space-10);
+      background: var(--bg-surface);
+      border-right: 1px solid var(--border);
     }
 
     .login-inner {
@@ -47,154 +38,168 @@
       max-width: 360px;
     }
 
+    /* Logo */
     .login-logo {
       display: flex;
       align-items: center;
-      gap: 12px;
-      margin-bottom: 40px;
+      gap: var(--space-3);
+      margin-bottom: var(--space-10);
     }
 
     .login-uc-shield {
-      width: 40px;
-      height: 40px;
+      height: 48px;
+      width: auto;
       object-fit: contain;
+      flex-shrink: 0;
     }
 
     .login-logo-text h1 {
-      font-size: 18px;
+      font-size: var(--text-body-md);
       font-weight: 700;
-      color: var(--navy);
-      letter-spacing: -0.3px;
-      line-height: 1.2;
+      color: var(--accent-primary);
+      letter-spacing: var(--ls-snug);
+      line-height: var(--lh-snug);
     }
 
     .login-logo-text p {
-      font-size: 11px;
-      color: var(--muted);
-      letter-spacing: 0.4px;
+      font-size: var(--text-caption);
+      color: var(--text-tertiary);
+      letter-spacing: var(--ls-wide);
       text-transform: uppercase;
       margin-top: 2px;
     }
 
+    /* Heading */
     .login-heading {
-      margin-bottom: 32px;
+      margin-bottom: var(--space-8);
     }
 
     .login-heading h2 {
-      font-size: 26px;
+      font-size: var(--text-heading-sm);
       font-weight: 700;
-      color: var(--text);
-      letter-spacing: -0.5px;
-      line-height: 1.2;
+      color: var(--text-primary);
+      letter-spacing: var(--ls-tight);
+      line-height: var(--lh-snug);
     }
 
     .login-heading p {
-      font-size: 14px;
-      color: var(--muted);
-      margin-top: 6px;
+      font-size: var(--text-body);
+      color: var(--text-secondary);
+      margin-top: var(--space-1);
     }
 
+    /* Error */
+    .error-alert {
+      background: var(--error-bg);
+      border: 1px solid var(--error-border);
+      border-radius: var(--radius-md);
+      color: var(--error-text);
+      font-size: var(--text-body);
+      padding: var(--space-3) var(--space-4);
+      margin-bottom: var(--space-4);
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+    }
+
+    /* Form */
     .form-group {
-      margin-bottom: 16px;
+      margin-bottom: var(--space-4);
     }
 
     label {
       display: block;
-      font-size: 13px;
+      font-size: var(--text-body-sm);
       font-weight: 600;
-      color: var(--muted);
-      margin-bottom: 8px;
+      color: var(--text-secondary);
+      margin-bottom: var(--space-2);
       letter-spacing: 0.2px;
     }
 
     input[type="password"] {
       width: 100%;
       height: 48px;
-      background: var(--bg);
+      background: var(--bg-base);
       border: 1.5px solid var(--border);
-      border-radius: 12px;
-      padding: 0 18px;
+      border-radius: var(--radius-md);
+      padding: 0 var(--space-4);
       font-size: 16px;
-      color: var(--text);
-      font-family: inherit;
+      color: var(--text-primary);
+      font-family: var(--font-sans);
       outline: none;
-      transition: border-color 0.15s, box-shadow 0.15s;
+      transition:
+        border-color var(--dur-normal) var(--ease-std),
+        box-shadow var(--dur-normal) var(--ease-std),
+        background var(--dur-normal) var(--ease-std);
       letter-spacing: 4px;
     }
 
     input[type="password"]:focus {
-      border-color: var(--navy);
-      box-shadow: 0 0 0 3px rgba(0,51,102,0.1);
-      background: white;
+      border-color: var(--accent-primary);
+      box-shadow: var(--shadow-focus);
+      background: var(--bg-surface);
     }
 
     input[type="password"]::placeholder {
       letter-spacing: normal;
-      color: #AEAEB2;
+      color: var(--text-tertiary);
     }
 
-    .error-alert {
-      background: #FFF0F0;
-      border: 1px solid rgba(224,1,34,0.2);
-      border-radius: 10px;
-      color: #B02020;
-      font-size: 14px;
-      padding: 12px 16px;
-      margin-bottom: 16px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
+    /* Submit button */
     button[type="submit"] {
       width: 100%;
       height: 48px;
-      background: var(--navy);
+      background: var(--accent-primary);
       border: none;
-      border-radius: 12px;
-      color: white;
-      font-size: 15px;
+      border-radius: var(--radius-md);
+      color: #ffffff;
+      font-size: var(--text-body-md);
       font-weight: 600;
-      font-family: inherit;
+      font-family: var(--font-sans);
       cursor: pointer;
-      transition: all 0.15s;
-      letter-spacing: -0.1px;
-      margin-top: 8px;
+      margin-top: var(--space-2);
+      transition:
+        background var(--dur-fast) var(--ease-std),
+        transform var(--dur-fast) var(--ease-std),
+        box-shadow var(--dur-fast) var(--ease-std);
+      letter-spacing: var(--ls-snug);
     }
 
     button[type="submit"]:hover {
-      background: #004080;
+      background: var(--accent-primary-hover);
       transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(0,51,102,0.25);
+      box-shadow: var(--shadow-md);
     }
 
     button[type="submit"]:active {
-      transform: translateY(0);
+      transform: scale(0.97) translateY(0);
+      box-shadow: none;
     }
 
+    /* Footer */
     .login-footer {
-      margin-top: 40px;
-      padding-top: 24px;
+      margin-top: var(--space-10);
+      padding-top: var(--space-6);
       border-top: 1px solid var(--border);
-      font-size: 12px;
-      color: #AEAEB2;
-      line-height: 1.5;
+      font-size: var(--text-body-sm);
+      color: var(--text-tertiary);
+      line-height: var(--lh-normal);
     }
 
     /* ── Right panel (brand) ── */
     .login-right {
       flex: 1;
-      background: var(--navy);
+      background: var(--accent-primary);
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      padding: 48px;
+      padding: var(--space-12);
       position: relative;
       overflow: hidden;
     }
 
-    /* Subtle geometric pattern */
+    /* Grid texture */
     .login-right::before {
       content: '';
       position: absolute;
@@ -205,79 +210,117 @@
       background-size: 48px 48px;
     }
 
+    /* UC Red glow */
     .login-right::after {
       content: '';
       position: absolute;
       bottom: -80px;
       right: -80px;
-      width: 400px;
-      height: 400px;
+      width: 480px;
+      height: 480px;
       border-radius: 50%;
-      background: radial-gradient(circle, rgba(224,1,34,0.15) 0%, transparent 70%);
+      background: radial-gradient(circle, rgba(224,1,34,0.18) 0%, transparent 68%);
+      pointer-events: none;
     }
 
     .login-brand {
       position: relative;
       z-index: 1;
       text-align: center;
-      max-width: 360px;
+      max-width: 380px;
     }
 
     .brand-accent {
-      width: 48px;
+      width: 40px;
       height: 3px;
-      background: var(--red);
+      background: var(--accent-red);
       border-radius: 2px;
-      margin: 0 auto 32px;
+      margin: 0 auto var(--space-8);
     }
 
     .brand-title {
-      font-size: 32px;
+      font-size: var(--text-heading);
       font-weight: 700;
-      color: white;
-      letter-spacing: -0.8px;
-      line-height: 1.2;
-      margin-bottom: 16px;
+      color: #ffffff;
+      letter-spacing: var(--ls-tight);
+      line-height: var(--lh-snug);
+      margin-bottom: var(--space-4);
     }
 
     .brand-sub {
-      font-size: 15px;
+      font-size: var(--text-body-md);
       color: rgba(255,255,255,0.6);
-      line-height: 1.6;
-      margin-bottom: 40px;
+      line-height: var(--lh-normal);
+      margin-bottom: var(--space-10);
     }
 
-    .brand-features {
+    /* Stat metrics */
+    .brand-stats {
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: var(--space-4);
       text-align: left;
     }
 
-    .brand-feature {
+    .brand-stat {
       display: flex;
       align-items: center;
-      gap: 12px;
-      font-size: 14px;
-      color: rgba(255,255,255,0.75);
+      gap: var(--space-4);
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: var(--radius-md);
+      padding: var(--space-4) var(--space-5);
+      backdrop-filter: blur(4px);
+      transition: background var(--dur-normal) var(--ease-std);
     }
 
-    .feature-dot {
-      width: 6px;
-      height: 6px;
-      min-width: 6px;
-      border-radius: 50%;
-      background: var(--red);
+    .brand-stat:hover {
+      background: rgba(255,255,255,0.11);
+    }
+
+    .stat-icon {
+      width: 40px;
+      height: 40px;
+      background: rgba(255,255,255,0.12);
+      border-radius: var(--radius-sm);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      font-size: 18px;
+    }
+
+    .stat-body {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .stat-number {
+      font-size: var(--text-subheading);
+      font-weight: 700;
+      color: #ffffff;
+      letter-spacing: var(--ls-tight);
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+      font-feature-settings: "tnum" 1;
+    }
+
+    .stat-label {
+      font-size: var(--text-body-sm);
+      color: rgba(255,255,255,0.55);
+      line-height: 1;
     }
 
     @media (max-width: 768px) {
       .login-right { display: none; }
-      .login-left  { max-width: 100%; }
+      .login-left  { flex: 1; border-right: none; }
     }
   </style>
 </head>
 <body>
   <div class="login-shell">
+
     <!-- Left: Form -->
     <div class="login-left">
       <div class="login-inner">
@@ -297,7 +340,11 @@
 
         {% if error %}
         <div class="error-alert">
-          <span>⚠</span> {{ error }}
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M8 5v3.5M8 10.5v.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          {{ error }}
         </div>
         {% endif %}
 
@@ -313,7 +360,7 @@
               autocomplete="current-password"
             >
           </div>
-          <button type="submit">Sign in to Platform →</button>
+          <button type="submit">Sign In to Platform</button>
         </form>
 
         <div class="login-footer">
@@ -328,20 +375,37 @@
     <div class="login-right">
       <div class="login-brand">
         <div class="brand-accent"></div>
-        <div class="brand-title">Equity Research Platform</div>
+        <div class="brand-title">Equity Research<br>Platform</div>
         <div class="brand-sub">
-          Professional-grade stock analysis, valuation models,<br>
-          and investment research tools — built for Lindner.
+          Professional-grade analysis, valuation models,<br>
+          and research tools — built for Lindner.
         </div>
-        <div class="brand-features">
-          <div class="brand-feature"><div class="feature-dot"></div>Full-pipeline stock analysis with DCF and research agents</div>
-          <div class="brand-feature"><div class="feature-dot"></div>LBO and M&A merger consequence models</div>
-          <div class="brand-feature"><div class="feature-dot"></div>Goldman-style Excel, PDF reports, and pitch decks</div>
-          <div class="brand-feature"><div class="feature-dot"></div>Real-time SEC filings, insider tracking, earnings history</div>
-          <div class="brand-feature"><div class="feature-dot"></div>Push notifications via phone for price alerts</div>
+        <div class="brand-stats">
+          <div class="brand-stat">
+            <div class="stat-icon">📊</div>
+            <div class="stat-body">
+              <div class="stat-number">17</div>
+              <div class="stat-label">Excel Sheets per Report</div>
+            </div>
+          </div>
+          <div class="brand-stat">
+            <div class="stat-icon">📑</div>
+            <div class="stat-body">
+              <div class="stat-number">12</div>
+              <div class="stat-label">Slide Pitch Deck</div>
+            </div>
+          </div>
+          <div class="brand-stat">
+            <div class="stat-icon">⚡</div>
+            <div class="stat-body">
+              <div class="stat-number">Live</div>
+              <div class="stat-label">Market Data &amp; SEC Filings</div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
+
   </div>
 </body>
 </html>

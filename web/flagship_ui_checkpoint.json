@@ -1,0 +1,38 @@
+{
+  "build": "flagship_ui",
+  "started": "2026-05-17T00:00:00Z",
+  "completed": "2026-05-17T22:34:00Z",
+  "stages": {
+    "0_read_all_plugins_and_docs": true,
+    "1_design_system_tokens": true,
+    "2_home_dashboard": true,
+    "3_skeleton_screens": true,
+    "4_microinteractions_and_animation": true,
+    "5_progress_stream_redesign": true,
+    "6_results_panel_hierarchy": true,
+    "7_dark_mode": true,
+    "8_typography_spacing_audit": true,
+    "9_empty_states": true,
+    "10_login_page_polish": true,
+    "11_mobile_responsive_audit": true,
+    "12_playwright_full_audit": true,
+    "13_deploy_and_verify": true
+  },
+  "live_url": "https://web-chi-ten-48.vercel.app",
+  "deployment_id": "dpl_C3JDsgGqGbh7GV3MPGBtmBfuRbY1",
+  "notes": {
+    "architecture": "No build step — React 18 + Babel standalone via CDN. All animations in CSS.",
+    "sidebar": "UC Red (#E00122) in light mode, dark red (#1A0004) in dark mode",
+    "key_apis": "/api/watchlist/quotes, /api/history, /api/market-bar (SPY/VIX/10YR)",
+    "completed_files": [
+      "web/static/design-system.css — CSS tokens, dark mode, Inter font (new file)",
+      "web/static/styles.css — complete rewrite, 549 CSS var usages",
+      "web/templates/index.html — data-theme=light, design-system link",
+      "web/templates/login.html — icon+metric stats, design tokens, focus ring",
+      "web/app.py — /api/market-bar endpoint (SPY/VIX/TNX via ThreadPoolExecutor)",
+      "web/static/app.js — complete rewrite: dark mode, MarketBar, RecentAnalyses, hero results, per-step timers"
+    ],
+    "mobile_fix": "flex-direction: column (not column-reverse) — sidebar order:2 goes to bottom tab bar"
+  },
+  "resume_instruction": "ALL STAGES COMPLETE. No resume needed."
+}
