@@ -161,6 +161,7 @@ function TickerTape() {
   const [data, setData] = useState(null);
   const lastKnown = useRef(null);
   const tapeRef = useRef(null);
+  const outerRef = useRef(null);
   const trackRef = useRef(null);
 
   const load = useCallback(async () => {
@@ -169,7 +170,7 @@ function TickerTape() {
       lastKnown.current = r;
       setData(r);
     } catch {
-      if (lastKnown.current) setData(prev => ({ ...lastKnown.current }));
+      if (lastKnown.current) setData({ ...lastKnown.current });
     }
   }, []);
 
@@ -179,11 +180,29 @@ function TickerTape() {
     return () => clearInterval(id);
   }, [load]);
 
+  // After each render: remove old clone, append fresh clone, set widths + duration
   useLayoutEffect(() => {
-    if (!trackRef.current || !tapeRef.current) return;
-    const halfW = trackRef.current.scrollWidth / 2;
-    if (halfW < 1) return;
-    tapeRef.current.style.setProperty("--ticker-dur", `${(halfW / 40).toFixed(1)}s`);
+    const track = trackRef.current;
+    const outer = outerRef.current;
+    const tape  = tapeRef.current;
+    if (!track || !outer || !tape) return;
+
+    // Remove previous clone
+    outer.querySelectorAll(".ticker-clone").forEach(el => el.remove());
+
+    const w = track.scrollWidth;
+    if (w < 1) return;
+
+    // Append identical second copy for seamless loop
+    const clone = track.cloneNode(true);
+    clone.classList.add("ticker-clone");
+    outer.appendChild(clone);
+
+    // Outer must be exactly 2× track width for -50% = one full copy
+    outer.style.width = `${w * 2}px`;
+
+    // Speed: 40px/s over one copy width
+    tape.style.setProperty("--ticker-dur", `${(w / 40).toFixed(1)}s`);
   }, [data]);
 
   if (!data) return null;
@@ -217,19 +236,6 @@ function TickerTape() {
 
   if (!items.length) return null;
 
-  function renderSet(prefix) {
-    return items.map((it, i) => (
-      <React.Fragment key={`${prefix}${it.label}${i}`}>
-        <div className="ticker-item">
-          <span className="ticker-label">{it.label}</span>
-          <span className={`ticker-price${stale ? " stale" : ""}`}>{stale ? "~" : ""}{it.price}</span>
-          {fmtChg(it.chg)}
-        </div>
-        <div className="ticker-sep" aria-hidden="true" />
-      </React.Fragment>
-    ));
-  }
-
   return (
     <div className="ticker-tape" ref={tapeRef}>
       <div className="ticker-status">
@@ -237,9 +243,19 @@ function TickerTape() {
         {data.market_open ? "Live" : "Closed"}
       </div>
       <div className="ticker-scroll-area">
-        <div className="ticker-track" ref={trackRef}>
-          {renderSet("a")}
-          {renderSet("b")}
+        <div className="ticker-outer" ref={outerRef}>
+          <div className="ticker-track" ref={trackRef}>
+            {items.map((it, i) => (
+              <React.Fragment key={it.label + i}>
+                <div className="ticker-item">
+                  <span className="ticker-label">{it.label}</span>
+                  <span className={`ticker-price${stale ? " stale" : ""}`}>{stale ? "~" : ""}{it.price}</span>
+                  {fmtChg(it.chg)}
+                </div>
+                <div className="ticker-sep" aria-hidden="true" />
+              </React.Fragment>
+            ))}
+          </div>
         </div>
       </div>
     </div>
@@ -2040,12 +2056,13 @@ const TOUR_SLIDES = [
 ];
 
 function OnboardingTour({ onClose }) {
-  const [slide,    setSlide]    = useState(0);
-  const [repeat,   setRepeat]   = useState(false);
-  const [animKey,  setAnimKey]  = useState(0);
+  const [slide,     setSlide]     = useState(0);
+  const [repeat,    setRepeat]    = useState(false);
+  const [animKey,   setAnimKey]   = useState(0);
+  const [direction, setDirection] = useState("forward");
   const total = TOUR_SLIDES.length;
 
-  const dismiss = useCallback((showNext) => {
+  const dismiss = useCallback(() => {
     localStorage.setItem(TOUR_SEEN_KEY, "1");
     localStorage.setItem(TOUR_REPEAT_KEY, repeat ? "1" : "0");
     onClose();
@@ -2053,12 +2070,21 @@ function OnboardingTour({ onClose }) {
 
   const next = useCallback(() => {
     if (slide < total - 1) {
+      setDirection("forward");
       setSlide(s => s + 1);
       setAnimKey(k => k + 1);
     } else {
       dismiss();
     }
   }, [slide, total, dismiss]);
+
+  const back = useCallback(() => {
+    if (slide > 0) {
+      setDirection("back");
+      setSlide(s => s - 1);
+      setAnimKey(k => k + 1);
+    }
+  }, [slide]);
 
   // Focus trap + Escape
   const cardRef = useRef(null);
@@ -2082,7 +2108,7 @@ function OnboardingTour({ onClose }) {
         </div>
 
         <div className="tour-slide-wrap">
-          <div className="tour-slide" key={animKey}>
+          <div className={`tour-slide ${direction}`} key={animKey}>
             {s.isDone ? (
               <div className="tour-check-wrap">
                 <div className="tour-check-circle">
@@ -2135,9 +2161,14 @@ function OnboardingTour({ onClose }) {
               <div key={i} className={`tour-dot${i === slide ? " active" : ""}`} />
             ))}
           </div>
-          <button className="tour-next-btn" onClick={next}>
-            {slide < total - 1 ? "Next →" : "Get Started →"}
-          </button>
+          <div className="tour-btn-row">
+            {slide > 0 && (
+              <button className="tour-back-btn" onClick={back}>← Back</button>
+            )}
+            <button className="tour-next-btn" onClick={next}>
+              {slide < total - 1 ? "Next →" : "Get Started →"}
+            </button>
+          </div>
         </div>
       </div>
     </div>
