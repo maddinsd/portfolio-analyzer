@@ -1551,7 +1551,7 @@ function HistoryPage({ onAnalyzeTicker }) {
 }
 
 // ── Sidebar ───────────────────────────────────────────────────────────────────
-function Sidebar({ page, onNavigate, theme, onToggleTheme, onShowAbout }) {
+function Sidebar({ page, onNavigate, theme, onToggleTheme, onShowAbout, onLaunchTour }) {
   const items = [
     { id: "analyze",       label: "Home",           icon: ICONS.BarChart },
     { id: "watchlist",     label: "Watchlist",      icon: (p={}) => (
@@ -1610,6 +1610,12 @@ function Sidebar({ page, onNavigate, theme, onToggleTheme, onShowAbout }) {
       <div className="sidebar-disclaimer">
         Sam Madding is a student at the University of Cincinnati. This project is not affiliated with, sponsored by, or endorsed by the University of Cincinnati.
       </div>
+      <button className="tour-sidebar-link" onClick={onLaunchTour} aria-label="Launch platform tour">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/>
+        </svg>
+        Platform tour
+      </button>
     </nav>
   );
 }
@@ -1632,6 +1638,188 @@ function AboutModal({ onClose }) {
           <p>This is a personal research project — a full-stack equity research platform that generates institutional-quality analysis packages for any public company using live market data, SEC filings, and AI synthesis.</p>
           <p>Analyses are rate-limited to 10 per hour per visitor and 20 per day total to manage API costs.</p>
           <p style={{ color: "var(--text-tertiary)", fontSize: "var(--text-body-sm)" }}>Not affiliated with, sponsored by, or endorsed by the University of Cincinnati.</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Onboarding Tour ───────────────────────────────────────────────────────────
+const TOUR_SEEN_KEY   = "lindner_onboarding_seen";
+const TOUR_REPEAT_KEY = "lindner_onboarding_repeat";
+
+function shouldShowTour() {
+  if (localStorage.getItem(TOUR_SEEN_KEY)) {
+    return localStorage.getItem(TOUR_REPEAT_KEY) === "1";
+  }
+  return true;
+}
+
+const TOUR_SLIDES = [
+  {
+    key: "welcome",
+    icon: () => (
+      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
+      </svg>
+    ),
+    heading: "Welcome to the Lindner Research Platform",
+    sub: "Institutional-quality equity research in seconds. Built by Sam Madding at UC's Carl H. Lindner College of Business.",
+  },
+  {
+    key: "analyze",
+    icon: () => (
+      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+        <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
+      </svg>
+    ),
+    heading: "Start with any ticker",
+    sub: "Enter any public company's ticker symbol on the Home page to kick off a full analysis. The platform pulls live market data, SEC filings, and earnings history automatically.",
+    tip: "Try AAPL, NVDA, or JPM to see the platform in action.",
+  },
+  {
+    key: "outputs",
+    icon: () => (
+      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/>
+      </svg>
+    ),
+    heading: "Four research outputs",
+    sub: "Every analysis generates a complete package:",
+    outputs: [
+      { icon: "📊", label: "Excel Workbook",    desc: "16-sheet Goldman-style financial model" },
+      { icon: "📄", label: "Research PDF",       desc: "10-page institutional equity report" },
+      { icon: "📋", label: "Pitch Deck",         desc: "12-slide investment thesis deck" },
+      { icon: "🎓", label: "Education Guide",    desc: "Plain-English companion for each output" },
+    ],
+  },
+  {
+    key: "lbo-ma",
+    icon: () => (
+      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="4" y="2" width="16" height="20" rx="1"/><path d="M9 22V12h6v10"/><line x1="9" y1="7" x2="15" y2="7"/>
+      </svg>
+    ),
+    heading: "LBO & M&A models",
+    sub: "Run standalone Leveraged Buyout and Merger & Acquisition models for any company. Get full return schedules, debt waterfalls, accretion/dilution analysis, and 5×5 sensitivity tables — all exported to Excel.",
+  },
+  {
+    key: "watchlist",
+    icon: () => (
+      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/>
+      </svg>
+    ),
+    heading: "Watchlist & notifications",
+    sub: "Add tickers to your Watchlist to monitor live quotes, analyst targets, and price alerts. The Notifications page shows recent market alerts and earnings calendar events.",
+  },
+  {
+    key: "done",
+    heading: "You're all set",
+    sub: "Dive into your first analysis whenever you're ready. Come back to this tour any time via the sidebar.",
+    isDone: true,
+  },
+];
+
+function OnboardingTour({ onClose }) {
+  const [slide,    setSlide]    = useState(0);
+  const [repeat,   setRepeat]   = useState(false);
+  const [animKey,  setAnimKey]  = useState(0);
+  const total = TOUR_SLIDES.length;
+
+  const dismiss = useCallback((showNext) => {
+    localStorage.setItem(TOUR_SEEN_KEY, "1");
+    localStorage.setItem(TOUR_REPEAT_KEY, repeat ? "1" : "0");
+    onClose();
+  }, [repeat, onClose]);
+
+  const next = useCallback(() => {
+    if (slide < total - 1) {
+      setSlide(s => s + 1);
+      setAnimKey(k => k + 1);
+    } else {
+      dismiss();
+    }
+  }, [slide, total, dismiss]);
+
+  // Focus trap + Escape
+  const cardRef = useRef(null);
+  useEffect(() => {
+    const handler = (e) => { if (e.key === "Escape") dismiss(); };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [dismiss]);
+
+  useEffect(() => {
+    if (cardRef.current) cardRef.current.focus();
+  }, []);
+
+  const s = TOUR_SLIDES[slide];
+
+  return (
+    <div className="tour-backdrop" onClick={dismiss} role="dialog" aria-modal="true" aria-label="Platform tour">
+      <div className="tour-card" ref={cardRef} tabIndex={-1} onClick={e => e.stopPropagation()}>
+        <div className="tour-top-bar">
+          <button className="tour-skip" onClick={dismiss}>Skip tour</button>
+        </div>
+
+        <div className="tour-slide-wrap">
+          <div className="tour-slide" key={animKey}>
+            {s.isDone ? (
+              <div className="tour-check-wrap">
+                <div className="tour-check-circle">
+                  <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#34C759" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="tour-check-svg">
+                    <polyline points="20 6 9 17 4 12"/>
+                  </svg>
+                </div>
+              </div>
+            ) : (
+              <div className="tour-icon-wrap">
+                {s.icon && s.icon()}
+              </div>
+            )}
+
+            <div className="tour-heading">{s.heading}</div>
+            <div className="tour-sub">{s.sub}</div>
+
+            {s.tip && (
+              <div className="tour-tip">💡 {s.tip}</div>
+            )}
+
+            {s.outputs && (
+              <div className="tour-outputs">
+                {s.outputs.map(o => (
+                  <div key={o.label} className="tour-output-row">
+                    <span className="tour-output-icon">{o.icon}</span>
+                    <span><span className="tour-output-label">{o.label}</span> — {o.desc}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {s.isDone && (
+              <label className="tour-repeat-row">
+                <input
+                  type="checkbox"
+                  className="tour-repeat-checkbox"
+                  checked={repeat}
+                  onChange={e => setRepeat(e.target.checked)}
+                />
+                Show this tour next time I visit
+              </label>
+            )}
+          </div>
+        </div>
+
+        <div className="tour-footer">
+          <div className="tour-dots">
+            {TOUR_SLIDES.map((_, i) => (
+              <div key={i} className={`tour-dot${i === slide ? " active" : ""}`} />
+            ))}
+          </div>
+          <button className="tour-next-btn" onClick={next}>
+            {slide < total - 1 ? "Next →" : "Get Started →"}
+          </button>
         </div>
       </div>
     </div>
@@ -1674,6 +1862,7 @@ function App() {
   const [isVercel,        setIsVercel]        = useState(false);
   const [theme,           setTheme]           = useState(getInitialTheme);
   const [showAbout,       setShowAbout]       = useState(false);
+  const [showTour,        setShowTour]        = useState(shouldShowTour);
 
   // Wire up theme to <html data-theme>
   useEffect(() => {
@@ -1718,13 +1907,14 @@ function App() {
 
   return (
     <div className="app-shell">
-      <Sidebar page={page} onNavigate={handleNavigate} theme={theme} onToggleTheme={toggleTheme} onShowAbout={() => setShowAbout(true)} />
+      <Sidebar page={page} onNavigate={handleNavigate} theme={theme} onToggleTheme={toggleTheme} onShowAbout={() => setShowAbout(true)} onLaunchTour={() => setShowTour(true)} />
       <div className="content-area">
         <MarketBar />
         {page === "analyze" && <NoticeCard />}
         {pages[page]}
       </div>
       {showAbout && <AboutModal onClose={() => setShowAbout(false)} />}
+      {showTour  && <OnboardingTour onClose={() => setShowTour(false)} />}
     </div>
   );
 }

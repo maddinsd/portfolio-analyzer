@@ -2159,3 +2159,276 @@ input[type="range"]::-moz-range-thumb {
   .outcome-grid         { grid-template-columns: 1fr; }
   .ticker-grid          { grid-template-columns: 1fr 1fr; }
 }
+
+/* ── Onboarding Tour ─────────────────────────────────────────────────────────── */
+.tour-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  padding: var(--space-4);
+}
+
+.tour-card {
+  background: var(--bg-surface);
+  border-radius: 24px;
+  box-shadow: var(--shadow-lg);
+  max-width: 480px;
+  width: 100%;
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.tour-top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: var(--space-4) var(--space-5) 0;
+  height: 44px;
+  flex-shrink: 0;
+}
+
+.tour-skip {
+  background: none;
+  border: none;
+  font-size: var(--text-body-sm);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  transition: color var(--dur-fast) ease;
+}
+.tour-skip:hover { color: var(--text-secondary); }
+
+.tour-slide-wrap {
+  overflow: hidden;
+  flex: 1;
+}
+
+.tour-slide {
+  padding: var(--space-6) var(--space-8) var(--space-5);
+  animation: tourSlideIn 250ms var(--ease-out) both;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  min-height: 300px;
+  justify-content: center;
+}
+
+@keyframes tourSlideIn {
+  from { opacity: 0; transform: translateX(32px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.tour-icon-wrap {
+  width: 72px;
+  height: 72px;
+  border-radius: 20px;
+  background: var(--accent-primary-tint);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: var(--space-5);
+  flex-shrink: 0;
+}
+
+.tour-heading {
+  font-size: var(--text-title-lg);
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.2;
+  margin-bottom: var(--space-3);
+  letter-spacing: -0.02em;
+}
+
+.tour-sub {
+  font-size: var(--text-body);
+  color: var(--text-secondary);
+  line-height: 1.55;
+  max-width: 360px;
+}
+
+.tour-tip {
+  margin-top: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-subtle);
+  border-radius: var(--radius-md);
+  font-size: var(--text-body-sm);
+  color: var(--text-secondary);
+  border-left: 3px solid var(--accent-primary);
+  text-align: left;
+  width: 100%;
+}
+
+.tour-outputs {
+  margin-top: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.tour-output-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-subtle);
+  border-radius: var(--radius-md);
+  font-size: var(--text-body-sm);
+  color: var(--text-secondary);
+  text-align: left;
+}
+
+.tour-output-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+  width: 28px;
+  text-align: center;
+}
+
+.tour-output-label {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-right: 4px;
+}
+
+/* Animated checkmark (slide 6) */
+.tour-check-wrap {
+  width: 80px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: var(--space-5);
+  flex-shrink: 0;
+}
+
+.tour-check-circle {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: #E2F8F0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: checkPop 400ms var(--ease-out) 120ms both;
+}
+
+[data-theme="dark"] .tour-check-circle {
+  background: rgba(52, 199, 89, 0.15);
+}
+
+@keyframes checkPop {
+  0%   { transform: scale(0); opacity: 0; }
+  60%  { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1); }
+}
+
+.tour-check-svg {
+  animation: checkDraw 500ms ease 350ms both;
+  stroke-dasharray: 30;
+  stroke-dashoffset: 30;
+}
+
+@keyframes checkDraw {
+  to { stroke-dashoffset: 0; }
+}
+
+.tour-repeat-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  cursor: pointer;
+  font-size: var(--text-body-sm);
+  color: var(--text-secondary);
+  user-select: none;
+}
+
+.tour-repeat-checkbox {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent-primary);
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.tour-footer {
+  padding: var(--space-5) var(--space-8) var(--space-6);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  flex-shrink: 0;
+}
+
+.tour-dots {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.tour-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border-medium);
+  transition: width 250ms var(--ease-out), background 250ms ease;
+}
+
+.tour-dot.active {
+  width: 20px;
+  background: var(--accent-primary);
+}
+
+.tour-next-btn {
+  width: 100%;
+  padding: 14px;
+  background: var(--accent-primary);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--text-body);
+  font-weight: 600;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: opacity var(--dur-fast) ease, transform var(--dur-fast) ease;
+  letter-spacing: -0.01em;
+}
+.tour-next-btn:hover  { opacity: 0.9; transform: translateY(-1px); }
+.tour-next-btn:active { opacity: 1;   transform: translateY(0); }
+
+/* Sidebar tour link */
+.tour-sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 16px 10px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.42);
+  font-family: var(--font-sans);
+  transition: color var(--dur-fast) ease;
+  width: 100%;
+  text-align: left;
+}
+.tour-sidebar-link:hover { color: rgba(255, 255, 255, 0.7); }
+
+@media (max-width: 768px) {
+  .tour-sidebar-link { display: none; }
+  .tour-slide { padding: var(--space-5) var(--space-5) var(--space-4); min-height: 260px; }
+  .tour-footer { padding: var(--space-4) var(--space-5) var(--space-5); }
+  .tour-card { max-height: 90dvh; overflow-y: auto; }
+}
