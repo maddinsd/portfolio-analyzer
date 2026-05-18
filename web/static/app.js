@@ -739,7 +739,7 @@ function DashboardPage({ onAnalyzeTicker, onNavigate }) {
 }
 
 // ── AnalyzePage ───────────────────────────────────────────────────────────────
-function AnalyzePage({ prefilledTicker, isVercel }) {
+function AnalyzePage({ prefilledTicker, isVercel, onNavigate }) {
   const [ticker,   setTicker]   = useState("");
   const [audience, setAudience] = useState("student");
   const [flags,    setFlags]    = useState(["--full"]);
@@ -860,7 +860,19 @@ function AnalyzePage({ prefilledTicker, isVercel }) {
         )}
 
         {phase === "progress" && <ProgressPanel jobId={jobId} onDone={handleDone} />}
-        {phase === "results" && result && <ResultsPanel result={result} onReset={handleReset} isVercel={isVercel} />}
+        {phase === "results" && result && (
+          <>
+            <ResultsPanel result={result} onReset={handleReset} isVercel={isVercel} />
+            <div style={{ textAlign: "center", padding: "var(--space-2) var(--space-6) var(--space-6)" }}>
+              <button
+                onClick={() => onNavigate && onNavigate("history")}
+                style={{ background: "none", border: "none", cursor: "pointer", fontSize: "var(--text-body-sm)", color: "var(--accent-primary)", fontFamily: "var(--font-sans)", textDecoration: "underline", textUnderlineOffset: "3px" }}
+              >
+                View in History →
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -1541,8 +1553,10 @@ function HistoryPage({ onAnalyzeTicker }) {
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 function Sidebar({ page, onNavigate, theme, onToggleTheme, onShowAbout }) {
   const items = [
-    { id: "dashboard",     label: "Home",           icon: ICONS.Home },
-    { id: "analyze",       label: "New Analysis",   icon: ICONS.BarChart },
+    { id: "analyze",       label: "Home",           icon: ICONS.BarChart },
+    { id: "watchlist",     label: "Watchlist",      icon: (p={}) => (
+      <Icon {...p}><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></Icon>
+    )},
     { id: "lbo",           label: "LBO Calculator", icon: (p={}) => (
       <Icon {...p}><rect x="4" y="2" width="16" height="20" rx="1"/><path d="M9 22V12h6v10"/><path d="M8 7h.01M16 7h.01M8 11h.01M16 11h.01"/></Icon>
     )},
@@ -1655,7 +1669,7 @@ function NoticeCard() {
 
 // ── App root ──────────────────────────────────────────────────────────────────
 function App() {
-  const [page,            setPage]            = useState("dashboard");
+  const [page,            setPage]            = useState("analyze");
   const [prefilledTicker, setPrefilledTicker] = useState("");
   const [isVercel,        setIsVercel]        = useState(false);
   const [theme,           setTheme]           = useState(getInitialTheme);
@@ -1684,7 +1698,7 @@ function App() {
 
   const handleAnalyzeTicker = useCallback((ticker) => {
     if (ticker) setPrefilledTicker(ticker);
-    setPage("analyze");
+    setPage("analyze"); // "analyze" is now the home/root page
   }, []);
 
   const handleNavigate = useCallback((p) => setPage(p), []);
@@ -1694,8 +1708,8 @@ function App() {
   }, []);
 
   const pages = {
-    dashboard:     <DashboardPage onAnalyzeTicker={handleAnalyzeTicker} onNavigate={handleNavigate} />,
-    analyze:       <AnalyzePage prefilledTicker={prefilledTicker} isVercel={isVercel} />,
+    analyze:       <AnalyzePage prefilledTicker={prefilledTicker} isVercel={isVercel} onNavigate={handleNavigate} />,
+    watchlist:     <DashboardPage onAnalyzeTicker={handleAnalyzeTicker} onNavigate={handleNavigate} />,
     lbo:           <LBOPage />,
     ma:            <MAPage />,
     notifications: <NotificationsPage />,
@@ -1707,7 +1721,7 @@ function App() {
       <Sidebar page={page} onNavigate={handleNavigate} theme={theme} onToggleTheme={toggleTheme} onShowAbout={() => setShowAbout(true)} />
       <div className="content-area">
         <MarketBar />
-        {page === "dashboard" && <NoticeCard />}
+        {page === "analyze" && <NoticeCard />}
         {pages[page]}
       </div>
       {showAbout && <AboutModal onClose={() => setShowAbout(false)} />}

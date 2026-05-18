@@ -16,12 +16,12 @@ BREAKPOINTS = [
 
 # Map (name, nav_text) for click-based SPA navigation
 PAGES = [
-    ("home",    "Home"),
-    ("analyze", "New Analysis"),
-    ("lbo",     "LBO Calculator"),
-    ("ma",      "M&A Builder"),
-    ("notify",  "Notifications"),
-    ("history", "History"),
+    ("home",      "Home"),       # analyze page (the analysis tool)
+    ("watchlist", "Watchlist"),  # dashboard/monitoring page
+    ("lbo",       "LBO Calculator"),
+    ("ma",        "M&A Builder"),
+    ("notify",    "Notifications"),
+    ("history",   "History"),
 ]
 
 async def shot(page, name, theme, bp_name):
