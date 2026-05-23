@@ -149,12 +149,38 @@ def api_config():
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
 def is_admin() -> bool:
-    return request.cookies.get("admin_token") == os.environ.get("ADMIN_TOKEN", "lindner2026")
+    return request.cookies.get("admin_token") == os.environ.get("ADMIN_TOKEN", "")
 
 
 @app.route("/api/auth/status")
 def api_auth_status():
     return jsonify({"is_admin": is_admin()})
+
+
+@app.route("/api/admin/login", methods=["POST"])
+def api_admin_login():
+    data = request.get_json() or {}
+    password = data.get("password", "")
+    admin_token = os.environ.get("ADMIN_TOKEN", "")
+    if password == admin_token:
+        resp = jsonify({"ok": True})
+        resp.set_cookie(
+            "admin_token",
+            admin_token,
+            max_age=60 * 60 * 24 * 365,
+            httponly=True,
+            samesite="Lax",
+            secure=request.is_secure,
+        )
+        return resp
+    return jsonify({"error": "Incorrect password"}), 401
+
+
+@app.route("/api/admin/logout", methods=["POST"])
+def api_admin_logout():
+    resp = jsonify({"ok": True})
+    resp.delete_cookie("admin_token")
+    return resp
 
 # ── Quote ─────────────────────────────────────────────────────────────────────
 @app.route("/api/quote/<ticker>")

@@ -4,7 +4,7 @@ from pathlib import Path
 from playwright.async_api import async_playwright
 
 BASE = "http://localhost:5001"
-PASSWORD = "lindner2026"
+PASSWORD = os.environ.get("ADMIN_TOKEN", "")
 OUT = Path(__file__).parent / "screenshots"
 OUT.mkdir(exist_ok=True)
 
