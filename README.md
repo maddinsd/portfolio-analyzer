@@ -1,203 +1,61 @@
-# Portfolio Analyzer
+# Lindner Research Platform
 
-**A single command produces a complete equity research package** — 17-sheet financial model, 12-slide pitch deck, 10-page research report, and standalone LBO/M&A models — using live market data and parallel AI agents. What takes a junior analyst 3–4 hours manually runs in under 30 seconds.
-
-```bash
-python3 main.py AAPL --full
-```
-
-Built by **Samuel Madding** | University of Cincinnati — Carl H. Lindner College of Business  
-Developed as a demonstration of applied AI and financial modeling skills targeting equity research roles.
+An AI-powered equity research platform that turns a single ticker symbol into a complete institutional-quality research package — 17-sheet financial model, 12-slide pitch deck, 10-page research PDF, and standalone LBO/M&A models — in under 30 seconds.
 
 ---
 
-## Live Platform
+## Live Demo
 
-**https://web-chi-ten-48.vercel.app**  
-Password: `lindner2026`
+**[https://web-chi-ten-48.vercel.app](https://web-chi-ten-48.vercel.app)**
 
-Run any public company ticker and get a complete institutional research package — directly in the browser. No installation required.
-
----
-
-## What It Produces
-
-| Output | Description | Trigger |
-|--------|-------------|---------|
-| **Excel workbook** | 17 sheets: snapshot, financials, DCF, comps, competitive analysis, earnings history, SEC filings, insider transactions | `python3 main.py AAPL` |
-| **Research PDF** | 10-page institutional-style equity research report with charts and football field | `--pdf` |
-| **Pitch deck** | 12-slide PowerPoint with rating card, DCF, comps table, football field | `--pitch` |
-| **Education guide** | Excel cell comments, slide speaker notes, 12-page companion PDF with 40-term glossary | `--education` |
-| **LBO model** | 9-tab leveraged buyout model: transaction, debt schedule, 3-statements, returns, sensitivity | `python3 lbo/lbo_model.py AAPL` |
-| **M&A model** | 8-tab merger consequences model: accretion/dilution (GAAP + Cash EPS), synergies, break-even analysis | `python3 ma/ma_model.py MSFT AAPL` |
-
-All outputs are timestamped and archived in `reports/TICKER/` automatically.
+Run any public company ticker and get a complete institutional research package directly in the browser. No installation required.
 
 ---
 
-## Web Interface
+## Features
 
-A full-stack web platform for running all tools from a browser. Built with Flask (SSE streaming backend) and React (Apple-inspired fintech UI). Deployed on Vercel.
+- **Equity Research Report** — 14-section Claude-generated analysis (investment thesis, valuation, risks, comps, and more) exported as a 10-page Goldman-style PDF
+- **17-Sheet Excel Workbook** — Snapshot, income statement, balance sheet, cash flow, DCF model, comparable companies, competitive analysis, analyst coverage, earnings history, SEC filings, and insider transactions
+- **12-Slide Pitch Deck** — PowerPoint with rating card, DCF bridge, football field valuation, and comps table
+- **DCF Model** — Two-stage discounted cash flow with CAPM-based WACC, 5-year explicit forecast, terminal value, and 5×5 sensitivity table
+- **LBO Model** — 9-tab leveraged buyout model with two-pass debt schedule, integrated 3-statement model, Newton-Raphson IRR, and 5×5 sensitivity tables
+- **M&A Merger Model** — 8-tab accretion/dilution model with GAAP and Cash EPS, synergy ramp, purchase price allocation, break-even analysis, and sensitivity tables
+- **SEC EDGAR Parser** — Algorithmic extraction of 10-K risk factors, MD&A tone, and business overview with no API key required
+- **Insider Transaction Tracker** — Form 4 buy/sell signals scored by executive role, cluster activity, and conviction level
+- **Earnings History** — 8-quarter beat/miss streak, revenue surprise tracking, and algorithmic tone scoring
+- **Education Layer** — Excel cell comments, PowerPoint speaker notes, and a 12-page companion PDF with 40-term glossary generated in 3 parallel Sonnet calls
+- **Real-Time Web Streaming** — Server-Sent Events stream pipeline progress to the browser as each stage completes
+- **Automation Layer** — Scheduled morning briefings, price alert monitor, earnings calendar, and on-demand IC memo generator with push notifications
 
-### Pages
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| AI | Anthropic Claude API (Sonnet 4.6 for analysis, Haiku 4.5 for classification) |
+| Data | yfinance, Financial Modeling Prep (FMP), SEC EDGAR, NewsAPI |
+| Backend | Python 3.9, Flask, Server-Sent Events |
+| Frontend | React 18, Tailwind CSS |
+| Excel | openpyxl |
+| PDF | ReportLab 4.x + matplotlib |
+| PowerPoint | python-pptx 1.0.x |
+| Deployment | Vercel |
+| Notifications | ntfy.sh |
+
+---
+
+## Screenshots
+
+> _Screenshots coming soon_
 
 | Page | Description |
-|------|-------------|
-| **Home / Watchlist** | Live prices for 8 tracked tickers, prior analysis status, one-click re-analysis |
-| **New Analysis** | Run a full stock analysis with real-time progress streaming (SSE); downloads Excel, PDF, Pitch Deck, Education Guide |
-| **LBO Calculator** | 9-tab LBO model in-browser: set entry multiple, hold period, debt ratio, instant MOIC/IRR preview |
-| **M&A Deal Builder** | 8-tab merger model: enter acquirer + target, set offer premium and cash/stock mix, optional synergy override |
-| **Notifications** | Configure ntfy.sh push alerts for watchlist price thresholds; send test notification |
-| **History** | Browse all prior analysis runs; download outputs from any past job |
-
-### Running Locally
-
-```bash
-cd web
-pip install -r requirements.txt
-flask run --port 5001
-# Open http://localhost:5001
-```
-
-### Deploying to Vercel
-
-```bash
-# Sync pipeline files from project root into web/, then deploy
-make deploy
-
-# Sync only (no deploy)
-cd web && bash sync_pipeline.sh
-```
-
-The `sync_pipeline.sh` script copies all pipeline modules (fetcher.py, analyzer.py, etc.) from the project root into `web/` so Vercel has a self-contained deployable directory.
-
----
-
-## Security
-
-The web platform is secured at multiple layers:
-
-- **Password protected** — single shared password, cookie-based session authentication
-- **Rate limited** — maximum 10 analyses per hour per IP address
-- **Daily cap** — maximum 20 analyses per day globally to control API costs
-- **Session expiry** — sessions expire after 8 hours; login required again
-- **API key isolation** — all keys stored as Vercel environment variables; never in code or version control
-
----
-
-## How It Works
-
-```
-python3 main.py AAPL --full
-       │
-       ├─ [1] Data fetch (parallel, 5 threads)
-       │    ├─ yfinance: price history, balance sheet, cash flows, market data
-       │    ├─ FMP API: income statement (5yr), management profile, analyst ratings
-       │    └─ NewsAPI: latest 5 headlines
-       │
-       ├─ [2] Compute statistics & run DCF model
-       │
-       ├─ [3] Parallel analysis modules (5 threads simultaneously)
-       │    ├─ Competitive analysis — peer identification, metric benchmarking, moat scoring
-       │    ├─ Analyst coverage — consensus rating, price targets, EPS estimates
-       │    ├─ Earnings parser — 8-quarter beat/miss history, tone scoring
-       │    ├─ SEC EDGAR parser — 10-K risk factors, MD&A tone (no API key required)
-       │    └─ Insider tracker — Form 4 buy/sell signals, conviction scoring
-       │
-       ├─ [4] Claude analysis (claude-sonnet-4-6)
-       │    └─ 14-section structured analysis + 3 parallel research agents
-       │
-       └─ [5] Output generation
-            ├─ Markdown report
-            ├─ 17-sheet Excel workbook
-            ├─ 10-page equity research PDF
-            └─ 12-slide pitch deck
-```
-
-Total runtime: ~30 seconds (network-bound). Claude API call: ~8 seconds.
-
----
-
-## Data Sources
-
-**yfinance** — Price history, beta, 52-week range, balance sheet, cash flow statement, insider ownership, dividend history. Free, no key required.
-
-**Financial Modeling Prep (FMP)** — Income statement (5 years historical + 5 quarters), company profile (CEO, employee count, HQ location), analyst recommendations (Buy/Hold/Sell counts), price targets from individual analysts, quarterly EPS and revenue estimates. Free tier + paid key.
-
-**SEC EDGAR** (free government API, no key) — CIK lookup, 10-K annual filing extraction, 10-Q quarterly filing, Form 4 insider transactions. Requires a `User-Agent` header identifying the requester per SEC terms of service. Rate limited to 10 requests/second; this tool paces at ≤7/second.
-
-**NewsAPI** — Latest 5 headlines for the company and ticker symbol for news sentiment analysis.
-
-**Anthropic Claude API** — Powers the 14-section structured analysis, three parallel research agents (investment thesis, comps analysis, earnings preview), and the education layer content engine. Model: `claude-sonnet-4-6`. Token budget: ≤900 tokens input, 4,096 tokens output.
-
----
-
-## Financial Models
-
-### DCF Model (`dcf.py`)
-Two-stage discounted cash flow using the same methodology taught in the CFA curriculum:
-- **WACC** calculated from beta (CAPM), risk-free rate (4.5% — current 10Y Treasury), equity risk premium (5.5% historical average)
-- **5-year explicit forecast** of free cash flow with revenue growth decay
-- **Terminal value** using Gordon Growth Model at 2.5% perpetuity growth
-- **5×5 sensitivity table**: WACC ±2% vs terminal growth rate 1.5%–3.5%
-- Halts gracefully if WACC > 20% or terminal growth ≥ WACC (prevents nonsensical negative EVs)
-
-### Comparable Company Analysis
-Automatically identifies 3–5 peers from the same sector using yfinance's industry classification, with FMP as fallback when yfinance returns no results. Benchmarks: revenue growth, gross margin, operating margin, ROE, forward P/E. Each metric ranked relative to peer distribution (top/mid/bottom tercile). Computes implied P/E premium or discount to peer median.
-
-### LBO Model (`lbo/`)
-9-tab Goldman-style leveraged buyout model built entirely from live data:
-- **Sources & Uses** with sponsor equity, term loan B, senior notes, subordinated debt
-- **Debt schedule** with two-pass FCF sweep (first pass builds amortization schedule, second pass applies excess cash sweep)
-- **Integrated 3-statement model** (income statement, balance sheet, cash flow)
-- **Newton-Raphson IRR** — custom implementation, no numpy-financial dependency
-- **5×5 sensitivity tables**: entry multiple × exit multiple, entry multiple × debt ratio
-- Opening balance sheet uses goodwill as a plug to guarantee balance at close
-
-### M&A Merger Consequences Model (`ma/`)
-8-tab accretion/dilution model for any acquirer/target pair:
-- **Consideration mix**: Cash + stock in any ratio; computes new shares issued, exchange ratio, pro forma share count
-- **Purchase Price Allocation**: 30% of acquisition premium to intangibles, 70% to goodwill; straight-line amortization over 10 years
-- **EPS analysis**: GAAP EPS (includes D&A step-up) and Cash EPS (adds back amortization) for Years 1, 2, 3
-- **Synergy model**: Revenue, COGS, SG&A synergies with 50%/75%/100% ramp; NPV calculation at 8% discount rate
-- **Break-even premium**: Binary search finds the offer premium at which deal exactly breaks even on EPS
-- **5×5 sensitivity**: Accretion/dilution vs offer premium × synergy realization
-
----
-
-## Automation Layer (`automation/`)
-
-Four scheduled tools that run automatically without manual intervention:
-
-**Morning Briefing** (7am ET weekdays) — Scans the watchlist, retrieves overnight price moves, generates a Claude-written briefing for positions with significant moves. Saves to `automation/briefings/` and sends a push notification to your phone.
-
-**Market Alert Monitor** (hourly, 9am–4pm ET weekdays) — Checks live prices against user-defined thresholds. Fires a phone notification when a position crosses a price alert or moves more than a configurable percentage intraday.
-
-**Earnings Calendar** (daily weekdays) — Tracks upcoming earnings dates for watchlist companies. Sends a preview report 24 hours before each earnings release with analyst consensus, recent beat/miss history, and EPS surprise trend.
-
-**IC Memo Generator** (on-demand) — Produces a formal Investment Committee Memorandum for any ticker with a specified recommendation (BUY/HOLD/SELL) and conviction level. Used for practice writing institutional-quality investment memos.
-
-Phone notifications use [ntfy.sh](https://ntfy.sh) — a free, open-source push notification service requiring no account setup beyond subscribing to a topic.
-
----
-
-## Key Technical Decisions
-
-**Parallel execution everywhere** — The five analysis modules (competitive, analyst coverage, earnings, SEC, insider) all run simultaneously using `ThreadPoolExecutor(max_workers=5)`. FMP API calls also fire in parallel. This cuts total runtime by ~60% versus sequential execution. The tradeoff: errors in one thread must not crash others, so every module returns `{"error": "reason"}` on failure rather than raising.
-
-**Token budget management** — The Claude payload is capped at ≤900 tokens. This required a deliberate encoding strategy: all financial data is JSON-encoded with abbreviated keys (`"mktCap"` not `"market_cap"`, `"gm"` not `"gross_margin"`), dollar values are formatted strings not raw floats, and redundant fields that Claude can compute from others are omitted. The 14-section output structure is enforced by the prompt, not post-processing.
-
-**SEC EDGAR without a library** — The EDGAR API is a free government service with no key requirement, but it requires a specific `User-Agent` header and has a 10 req/s rate limit. Rather than using a third-party wrapper (which may break or add dependencies), this tool calls the raw REST endpoints directly: CIK lookup → submissions JSON → filing index → HTML extraction. Rate pacing at 150ms between requests keeps usage well under limits.
-
-**Model-specific data fetchers** — The LBO and M&A models import from `lbo/lbo_fetcher.py` rather than duplicating fetch logic. The M&A fetcher wraps the LBO fetcher and adds M&A-specific fields (EPS, P/E, book equity, analyst target). This prevents drift between what the models see and what the main pipeline sees. The rule is strict: never rewrite data fetching, always import it.
-
-**Goodwill as balance sheet plug** — In the LBO model, goodwill is not calculated from purchase price minus book value (which ignores transaction fees and creates BS imbalance). Instead it is computed as: `equity + debt + AP − cash − AR/inventory − PP&E`. This guarantees the opening balance sheet balances to zero on Day 1, regardless of the assumed capital structure.
-
-**Graceful degradation, always** — Every module returns a result dict with an `"error"` key rather than raising exceptions. Excel sheets render an error message card when a module fails; the PDF and pitch deck omit the affected section with a note. This means a broken FMP API key or a company not in EDGAR doesn't kill the entire run — it produces partial output with clear labels on what failed and why.
-
-**Server-Sent Events for real-time streaming** — The web platform uses SSE to stream analysis progress to the browser. Each pipeline stage emits a named event with percentage and status text. A heartbeat fires every 15 seconds to keep the Vercel edge proxy from closing the idle connection. The frontend uses a `ReadableStream` reader (not `EventSource`) because the initial request is a POST with a JSON body.
-
-**Three Sonnet calls for the education layer** — The education content (30 Excel cell comments, 12 slide notes, 12-section PDF guide, 40-term glossary) is generated in exactly 3 API calls, not one per feature. Each call returns structured JSON or text covering an entire category. This limits cost to ~$0.05 per education run while still producing contextually specific content (each comment references the company's actual metrics, not generic definitions). All 3 calls run in parallel via `ThreadPoolExecutor`.
+|---|---|
+| Dashboard | Live watchlist with prices and prior analysis status |
+| Analysis | Real-time streaming progress with download links |
+| LBO Calculator | Entry multiple, hold period, and debt ratio inputs with live MOIC/IRR preview |
+| M&A Deal Builder | Acquirer/target pair, offer premium, cash/stock mix, and synergy override |
+| History | Browse and download all prior analysis runs |
 
 ---
 
@@ -205,94 +63,60 @@ Phone notifications use [ntfy.sh](https://ntfy.sh) — a free, open-source push 
 
 ### Prerequisites
 
-- Python 3.9 or newer
+- Python 3.9+
 - Git
 
-### API Keys Required
+### API Keys
 
-| Key | Where to get it | Free tier |
-|-----|-----------------|-----------|
+| Key | Source | Free tier |
+|---|---|---|
 | `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com) | $5 credit on signup |
-| `FMP_API_KEY` | [financialmodelingprep.com](https://financialmodelingprep.com) | 250 calls/day free |
-| `NEWS_API_KEY` | [newsapi.org](https://newsapi.org) | 100 calls/day free |
+| `FMP_API_KEY` | [financialmodelingprep.com](https://financialmodelingprep.com) | 250 calls/day |
+| `NEWS_API_KEY` | [newsapi.org](https://newsapi.org) | 100 calls/day |
 
 SEC EDGAR and yfinance require no API key.
 
 ### Installation
 
 ```bash
-# Clone the repository
 git clone https://github.com/maddinsd/portfolio-analyzer.git
 cd portfolio-analyzer
-
-# Install dependencies
 pip install -r requirements.txt
-
-# Create your environment file
-cp .env.example .env   # then fill in your keys
+cp .env.example .env   # fill in your API keys
 ```
 
-### Environment Setup
-
-Create a `.env` file in the project root:
-
-```
-ANTHROPIC_API_KEY=sk-ant-...
-FMP_API_KEY=your_fmp_key_here
-NEWS_API_KEY=your_newsapi_key_here
-```
-
-This file is in `.gitignore` and will never be committed.
-
-### Commands
+### Usage
 
 ```bash
-# Free dry run — fetches all data, skips Claude API call
+# Dry run — no API cost, verifies data fetch
 python3 main.py AAPL --dry-run
 
-# Full analysis (uses ~$0.02 in Claude API credits)
+# Full analysis (~$0.02 in Claude credits)
 python3 main.py AAPL
 
 # Complete package: Excel + PDF + pitch deck
 python3 main.py AAPL --full
 
-# With education guide (adds 3 Sonnet calls, ~$0.05)
+# With education guide (~$0.05 additional)
 python3 main.py AAPL --full --education --audience student
 
-# Standalone LBO model (no Claude required)
+# Standalone LBO model
 python3 lbo/lbo_model.py AAPL --entry-multiple 8 --hold-years 5
 
-# Merger consequences model (no Claude required)
+# M&A merger model
 python3 ma/ma_model.py MSFT AAPL --premium 30 --cash-pct 60
 
 # Run the web interface locally
 cd web && flask run --port 5001
-
-# Deploy web interface to Vercel (sync + deploy)
-make deploy
-
-# Sync pipeline files into web/ only (no Vercel deploy)
-cd web && bash sync_pipeline.sh
-
-# Morning briefing (run manually to test; normally scheduled 7am ET)
-python3 automation/morning_briefing.py
-
-# On-demand IC memo
-python3 automation/ic_memo.py AAPL --recommendation BUY --conviction HIGH
 ```
 
-Outputs are saved to `reports/AAPL/` with timestamped filenames.
+---
+
+## Built By
+
+**Sam Madding**  
+University of Cincinnati — Carl H. Lindner College of Business
 
 ---
 
-## About
-
-Built by **Samuel Madding**, University of Cincinnati — Carl H. Lindner College of Business.
-
-Developed as a demonstration of applied AI and financial modeling skills targeting equity research roles. Every financial model follows institutional methodology — the DCF uses CFA-standard WACC construction, the LBO model uses a two-pass debt schedule with excess cash sweep, and the M&A model follows standard Purchase Price Allocation accounting.
-
-Built entirely from scratch using Claude Code.
-
----
-
-*For detailed documentation: [docs/OUTPUTS.md](docs/OUTPUTS.md) · [docs/METHODOLOGY.md](docs/METHODOLOGY.md) · [docs/AUTOMATION.md](docs/AUTOMATION.md) · [CHANGELOG.md](CHANGELOG.md)*
+> **Disclaimer:** This project is an independent academic and personal portfolio project. It is not affiliated with, endorsed by, or produced in partnership with the University of Cincinnati or the Carl H. Lindner College of Business.
