@@ -915,6 +915,58 @@ def og_image():
     return send_from_directory("static", "og-image.png")
 
 
+# ── Example outputs ───────────────────────────────────────────────────────────
+@app.route("/api/examples")
+def api_examples():
+    examples_dir = os.path.join(app.static_folder, "examples")
+    file_config = [
+        {
+            "filename": "LLY_Research_Model.xlsx",
+            "label": "Excel Research Model",
+            "description": "17 sheets — DCF, comps, earnings history, insider tracking, debt schedule",
+            "icon": "📊",
+            "type": "excel",
+        },
+        {
+            "filename": "LLY_Research_Report.pdf",
+            "label": "Research Report",
+            "description": "10-page institutional report with analyst note and price target",
+            "icon": "📄",
+            "type": "pdf",
+        },
+        {
+            "filename": "LLY_Pitch_Deck.pptx",
+            "label": "Pitch Deck",
+            "description": "12-slide deck with football field valuation and investment thesis",
+            "icon": "📑",
+            "type": "pptx",
+        },
+        {
+            "filename": "LLY_Education_Guide.pdf",
+            "label": "Education Guide",
+            "description": "Plain-English companion explaining every metric and model assumption",
+            "icon": "🎓",
+            "type": "pdf",
+        },
+    ]
+    files = []
+    for f in file_config:
+        path = os.path.join(examples_dir, f["filename"])
+        if os.path.exists(path):
+            size_bytes = os.path.getsize(path)
+            if size_bytes >= 1024 * 1024:
+                size_str = f"{size_bytes / 1024 / 1024:.1f} MB"
+            else:
+                size_str = f"{size_bytes / 1024:.0f} KB"
+            files.append({
+                **f,
+                "url": f"/static/examples/{f['filename']}",
+                "size_mb": round(size_bytes / 1024 / 1024, 2),
+                "size_str": size_str,
+            })
+    return jsonify({"ticker": "LLY", "company": "Eli Lilly & Co.", "files": files})
+
+
 # ── Feedback ───────────────────────────────────────────────────────────────────
 _FEEDBACK_FILE = _this_dir / "feedback.json"
 

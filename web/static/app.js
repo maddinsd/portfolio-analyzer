@@ -794,7 +794,7 @@ function DashboardPage({ onAnalyzeTicker, onNavigate, isAdmin }) {
 }
 
 // ── AnalyzePage ───────────────────────────────────────────────────────────────
-function AnalyzePage({ prefilledTicker, isVercel, onNavigate }) {
+function AnalyzePage({ prefilledTicker, isVercel, onNavigate, isAdmin }) {
   const [ticker,   setTicker]   = useState("");
   const [audience, setAudience] = useState("student");
   const [flags,    setFlags]    = useState(["--full"]);
@@ -846,6 +846,7 @@ function AnalyzePage({ prefilledTicker, isVercel, onNavigate }) {
 
   return (
     <div className="page">
+      {!isAdmin && <DemoBanner />}
       <div className="analyze-hero">
         <h1>Stock Analysis</h1>
         <p>Any public company. Full institutional research package in under 60 seconds — DCF, comps, SEC filings, insider tracking, and Claude AI synthesis.</p>
@@ -863,8 +864,9 @@ function AnalyzePage({ prefilledTicker, isVercel, onNavigate }) {
                   onChange={e => setTicker(e.target.value.toUpperCase())}
                   placeholder="AAPL, NVDA, LLY…"
                   maxLength={6}
-                  onKeyDown={e => { if (e.key === "Enter" && quote?.valid) runAnalysis(); }}
-                  autoFocus
+                  onKeyDown={e => { if (e.key === "Enter" && quote?.valid && isAdmin) runAnalysis(); }}
+                  disabled={!isAdmin}
+                  title={!isAdmin ? "Demo mode — analysis disabled" : undefined}
                 />
               </div>
               <QuotePreview ticker={ticker} quote={quote} loading={qLoading} />
@@ -879,9 +881,9 @@ function AnalyzePage({ prefilledTicker, isVercel, onNavigate }) {
                   const sel = !o.disabled && (flags.includes(o.flag) || (isFull && o.flag !== "--full"));
                   return (
                     <div key={o.flag}
-                      className={`outcome-card ${sel ? "selected" : ""} ${o.disabled ? "disabled" : ""}`}
-                      onClick={() => !o.disabled && toggleFlag(o.flag)}
-                      style={o.disabled ? { opacity: 0.45, cursor: "not-allowed" } : {}}>
+                      className={`outcome-card ${sel ? "selected" : ""} ${o.disabled || !isAdmin ? "disabled" : ""}`}
+                      onClick={() => isAdmin && !o.disabled && toggleFlag(o.flag)}
+                      style={o.disabled || !isAdmin ? { opacity: 0.45, cursor: "not-allowed" } : {}}>
                       <span className="outcome-card-icon">{o.icon({ size: 22 })}</span>
                       <div className="outcome-card-text">
                         <div className="outcome-card-label">{o.label}</div>
@@ -900,7 +902,9 @@ function AnalyzePage({ prefilledTicker, isVercel, onNavigate }) {
                 <div className="audience-toggle">
                   {["student", "professional"].map(a => (
                     <button key={a} className={`audience-btn ${audience === a ? "active" : ""}`}
-                      onClick={() => setAudience(a)}>
+                      onClick={() => isAdmin && setAudience(a)}
+                      disabled={!isAdmin}
+                      title={!isAdmin ? "Demo mode — analysis disabled" : undefined}>
                       {a.charAt(0).toUpperCase() + a.slice(1)}
                     </button>
                   ))}
@@ -910,8 +914,11 @@ function AnalyzePage({ prefilledTicker, isVercel, onNavigate }) {
 
             <div style={{ marginTop: "var(--space-6)" }}>
               <button className="btn btn-primary btn-run"
-                disabled={!quote?.valid || loading} onClick={runAnalysis}>
-                {loading ? "Starting…" : "Run Full Analysis →"}
+                disabled={!isAdmin || !quote?.valid || loading}
+                style={!isAdmin ? { opacity: 0.5, cursor: "not-allowed" } : {}}
+                onClick={isAdmin ? runAnalysis : undefined}
+                title={!isAdmin ? "Demo mode — analysis disabled" : undefined}>
+                {!isAdmin ? "🔒 Demo Mode" : loading ? "Starting…" : "Run Full Analysis →"}
               </button>
               <div className="run-estimate">~45–60 seconds · Claude Sonnet 4.6</div>
             </div>
@@ -933,12 +940,13 @@ function AnalyzePage({ prefilledTicker, isVercel, onNavigate }) {
           </>
         )}
       </div>
+      <ExamplesSection />
     </div>
   );
 }
 
 // ── LBOPage ───────────────────────────────────────────────────────────────────
-function LBOPage() {
+function LBOPage({ isAdmin }) {
   const [ticker,    setTicker]    = useState("");
   const [entryMult, setEntryMult] = useState(null);
   const [holdYears, setHoldYears] = useState(5);
@@ -985,6 +993,7 @@ function LBOPage() {
 
   return (
     <div className="page">
+      {!isAdmin && <DemoBanner />}
       <div className="page-header">
         <h1>LBO Calculator</h1>
         <p>9-tab Goldman-style model: debt schedule · 3 statements · IRR/MOIC · sensitivity</p>
@@ -1002,9 +1011,15 @@ function LBOPage() {
                   onChange={e => setTicker(e.target.value.toUpperCase())}
                   placeholder="AAPL"
                   maxLength={6}
+                  disabled={!isAdmin}
+                  title={!isAdmin ? "Demo mode — analysis disabled" : undefined}
                 />
-                <button className="btn btn-primary" disabled={!quote?.valid || loading} onClick={runLBO}>
-                  {loading ? "Starting…" : "Build Model →"}
+                <button className="btn btn-primary"
+                  disabled={!isAdmin || !quote?.valid || loading}
+                  style={!isAdmin ? { opacity: 0.5, cursor: "not-allowed" } : {}}
+                  onClick={isAdmin ? runLBO : undefined}
+                  title={!isAdmin ? "Demo mode — analysis disabled" : undefined}>
+                  {!isAdmin ? "🔒 Demo Mode" : loading ? "Starting…" : "Build Model →"}
                 </button>
               </div>
               <QuotePreview ticker={ticker} quote={quote} loading={qLoading} />
@@ -1020,9 +1035,12 @@ function LBOPage() {
                 </div>
                 <input type="range" min="5" max="20" step="0.5"
                   value={entryMult ?? 12.5}
-                  onChange={e => setEntryMult(parseFloat(e.target.value))} />
+                  onChange={e => setEntryMult(parseFloat(e.target.value))}
+                  disabled={!isAdmin} />
                 <div className="slider-bounds"><span>5x</span><span>Auto (market)</span><span>20x</span></div>
-                <button className="btn btn-ghost btn-sm mt-2" onClick={() => setEntryMult(null)}>Reset to auto</button>
+                <button className="btn btn-ghost btn-sm mt-2"
+                  onClick={() => isAdmin && setEntryMult(null)}
+                  disabled={!isAdmin}>Reset to auto</button>
               </div>
 
               <div className="slider-field">
@@ -1031,7 +1049,8 @@ function LBOPage() {
                   <div className="toggle-group">
                     {[3, 4, 5].map(y => (
                       <button key={y} className={`toggle-btn ${holdYears === y ? "active" : ""}`}
-                        onClick={() => setHoldYears(y)}>{y}yr</button>
+                        onClick={() => isAdmin && setHoldYears(y)}
+                        disabled={!isAdmin}>{y}yr</button>
                     ))}
                   </div>
                 </div>
@@ -1044,7 +1063,8 @@ function LBOPage() {
                 </div>
                 <input type="range" min="40" max="75" step="5"
                   value={debtPct}
-                  onChange={e => setDebtPct(parseInt(e.target.value))} />
+                  onChange={e => setDebtPct(parseInt(e.target.value))}
+                  disabled={!isAdmin} />
                 <div className="slider-bounds"><span>40%</span><span>60%</span><span>75%</span></div>
               </div>
 
@@ -1075,8 +1095,12 @@ function LBOPage() {
       )}
 
       {phase === "input" && <div style={{ marginTop: "var(--space-3)" }}>
-        <button className="btn btn-primary btn-run" disabled={!quote?.valid || loading} onClick={runLBO}>
-          {loading ? "Starting…" : "Build LBO Model →"}
+        <button className="btn btn-primary btn-run"
+          disabled={!isAdmin || !quote?.valid || loading}
+          style={!isAdmin ? { opacity: 0.5, cursor: "not-allowed" } : {}}
+          onClick={isAdmin ? runLBO : undefined}
+          title={!isAdmin ? "Demo mode — analysis disabled" : undefined}>
+          {!isAdmin ? "🔒 Demo Mode" : loading ? "Starting…" : "Build LBO Model →"}
         </button>
       </div>}
 
@@ -1114,7 +1138,7 @@ function LBOPage() {
 }
 
 // ── MAPage ────────────────────────────────────────────────────────────────────
-function MAPage() {
+function MAPage({ isAdmin }) {
   const [acq,       setAcq]       = useState("");
   const [tgt,       setTgt]       = useState("");
   const [premium,   setPremium]   = useState(30);
@@ -1154,6 +1178,7 @@ function MAPage() {
 
   return (
     <div className="page">
+      {!isAdmin && <DemoBanner />}
       <div className="page-header">
         <h1>M&amp;A Deal Builder</h1>
         <p>8-tab accretion/dilution model · synergies · pro forma EPS · 5×5 sensitivity</p>
@@ -1166,13 +1191,15 @@ function MAPage() {
               <div>
                 <label className="field-label">Acquirer</label>
                 <input className={`input ${acqQuote?.valid ? "valid" : acq.length > 0 && !acqLoading && acqQuote ? "invalid" : ""}`}
-                  value={acq} onChange={e => setAcq(e.target.value.toUpperCase())} placeholder="MSFT" maxLength={6} />
+                  value={acq} onChange={e => setAcq(e.target.value.toUpperCase())} placeholder="MSFT" maxLength={6}
+                  disabled={!isAdmin} title={!isAdmin ? "Demo mode — analysis disabled" : undefined} />
                 <QuotePreview ticker={acq} quote={acqQuote} loading={acqLoading} />
               </div>
               <div>
                 <label className="field-label">Target</label>
                 <input className={`input ${tgtQuote?.valid ? "valid" : tgt.length > 0 && !tgtLoading && tgtQuote ? "invalid" : ""}`}
-                  value={tgt} onChange={e => setTgt(e.target.value.toUpperCase())} placeholder="AAPL" maxLength={6} />
+                  value={tgt} onChange={e => setTgt(e.target.value.toUpperCase())} placeholder="AAPL" maxLength={6}
+                  disabled={!isAdmin} title={!isAdmin ? "Demo mode — analysis disabled" : undefined} />
                 <QuotePreview ticker={tgt} quote={tgtQuote} loading={tgtLoading} />
               </div>
             </div>
@@ -1185,7 +1212,8 @@ function MAPage() {
                 <span className="slider-val">{premium}%</span>
               </div>
               <input type="range" min="10" max="60" step="5"
-                value={premium} onChange={e => setPremium(parseInt(e.target.value))} />
+                value={premium} onChange={e => setPremium(parseInt(e.target.value))}
+                disabled={!isAdmin} />
               <div className="slider-bounds"><span>10%</span><span>30%</span><span>60%</span></div>
             </div>
 
@@ -1195,7 +1223,8 @@ function MAPage() {
                 <span className="slider-val">{cashPct}% cash / {100 - cashPct}% stock</span>
               </div>
               <input type="range" min="0" max="100" step="10"
-                value={cashPct} onChange={e => setCashPct(parseInt(e.target.value))} />
+                value={cashPct} onChange={e => setCashPct(parseInt(e.target.value))}
+                disabled={!isAdmin} />
               <div className="slider-bounds"><span>All stock</span><span>50/50</span><span>All cash</span></div>
             </div>
 
@@ -1203,7 +1232,8 @@ function MAPage() {
               <label className="field-label">Synergy Override (optional)</label>
               <input className="input" style={{ textTransform: "none" }}
                 type="number" value={synergies} onChange={e => setSynergies(e.target.value)}
-                placeholder="Leave blank for bottom-up estimate ($M)" />
+                placeholder="Leave blank for bottom-up estimate ($M)"
+                disabled={!isAdmin} title={!isAdmin ? "Demo mode — analysis disabled" : undefined} />
             </div>
 
             {(acqQuote?.valid || tgtQuote?.valid) && (
@@ -1244,8 +1274,12 @@ function MAPage() {
             )}
 
             <div className="mt-4">
-              <button className="btn btn-primary" disabled={!canRun} onClick={runMA}>
-                {loading ? "Starting…" : "Build M&A Model →"}
+              <button className="btn btn-primary"
+                disabled={!isAdmin || !canRun}
+                style={!isAdmin ? { opacity: 0.5, cursor: "not-allowed" } : {}}
+                onClick={isAdmin ? runMA : undefined}
+                title={!isAdmin ? "Demo mode — analysis disabled" : undefined}>
+                {!isAdmin ? "🔒 Demo Mode" : loading ? "Starting…" : "Build M&A Model →"}
               </button>
             </div>
           </div>
@@ -2008,6 +2042,17 @@ const TOUR_SLIDES = [
     sub: "Institutional-quality equity research in seconds. Built by Sam Madding at UC's Carl H. Lindner College of Business.",
   },
   {
+    key: "demo-mode",
+    icon: () => (
+      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+      </svg>
+    ),
+    heading: "Demo Mode — Real Outputs",
+    sub: "This is a live demo of the platform. To keep API costs manageable, live analysis is disabled for public visitors — but you can download real example outputs generated for Eli Lilly & Co. (LLY) directly from the home page.",
+    tip: "Scroll down on the home page to find the Examples section and download the full Excel model, research report, pitch deck, and education guide.",
+  },
+  {
     key: "analyze",
     icon: () => (
       <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
@@ -2211,6 +2256,58 @@ function NoticeCard() {
   );
 }
 
+// ── DemoBanner ────────────────────────────────────────────────────────────────
+function DemoBanner() {
+  const scrollToExamples = () => {
+    document.getElementById("examples")?.scrollIntoView({ behavior: "smooth" });
+  };
+  return (
+    <div className="demo-banner">
+      <span className="demo-banner-icon">🔒</span>
+      <div className="demo-banner-text">
+        <strong>Demo Mode</strong> — Live analysis is disabled to manage API costs. Download real example outputs below to see what the platform generates.
+      </div>
+      <button className="demo-banner-link" onClick={scrollToExamples}>View Examples ↓</button>
+    </div>
+  );
+}
+
+// ── ExamplesSection ───────────────────────────────────────────────────────────
+function ExamplesSection() {
+  const [data, setData] = useState(null);
+
+  useEffect(() => {
+    fetch("/api/examples", { credentials: "same-origin" })
+      .then(r => r.json())
+      .then(d => setData(d))
+      .catch(() => setData({ files: [] }));
+  }, []);
+
+  if (!data || !data.files || data.files.length === 0) return null;
+
+  return (
+    <section id="examples" className="examples-section">
+      <div className="examples-header">
+        <h2 className="examples-title">Example Outputs</h2>
+        <p className="examples-subtitle">
+          Real outputs generated by this platform for <strong>Eli Lilly &amp; Co. (LLY)</strong> — download any file to see exactly what the platform produces.
+        </p>
+      </div>
+      <div className="examples-grid">
+        {data.files.map(f => (
+          <div key={f.filename} className="example-card">
+            <div className="example-icon">{f.icon}</div>
+            <div className="example-label">{f.label}</div>
+            <div className="example-desc">{f.description}</div>
+            <div className="example-meta">{data.company} ({data.ticker}) · {f.size_str || `${f.size_mb} MB`}</div>
+            <a className="example-download" href={f.url} download>↓ Download</a>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 // ── VisitorBanner ─────────────────────────────────────────────────────────────
 function VisitorBanner({ storageKey, heading, children }) {
   const [dismissed, setDismissed] = useState(
@@ -2333,10 +2430,10 @@ function App() {
   });
 
   const pages = {
-    analyze:       <AnalyzePage prefilledTicker={prefilledTicker} isVercel={isVercel} onNavigate={handleNavigate} />,
+    analyze:       <AnalyzePage prefilledTicker={prefilledTicker} isVercel={isVercel} onNavigate={handleNavigate} isAdmin={isAdmin} />,
     watchlist:     <DashboardPage onAnalyzeTicker={handleAnalyzeTicker} onNavigate={handleNavigate} isAdmin={isAdmin} />,
-    lbo:           <LBOPage />,
-    ma:            <MAPage />,
+    lbo:           <LBOPage isAdmin={isAdmin} />,
+    ma:            <MAPage isAdmin={isAdmin} />,
     notifications: <NotificationsPage isAdmin={isAdmin} />,
     history:       <HistoryPage onAnalyzeTicker={handleAnalyzeTicker} />,
   };
