@@ -1,5 +1,13 @@
 # CLAUDE.md — Portfolio Analyzer
 
+## Instruction Files — Read These First
+- .claude/rules.md — what Claude may and may not do
+- .claude/privacy.md — personal data and privacy rules
+- .claude/context.md — project context and architecture
+
+These files take precedence. When in doubt, consult
+rules.md before taking any action.
+
 ## 1. PROJECT SUMMARY
 Professional stock analyzer CLI (`python3 main.py TICKER`). Stack: Python 3.9, yfinance, FMP REST API, SEC EDGAR REST API (free, no key), anthropic SDK (claude-sonnet-4-6), openpyxl, python-dotenv, NewsAPI, requests. Pipeline: yfinance + FMP parallel fetch → compute stats + DCF → peer competitive fetch → analyst coverage fetch → earnings beat/miss parse → SEC EDGAR filing parse → Claude API analysis (Sonnet 4.6, MAX_TOKENS=4096) → 3 parallel research agents → markdown report + 16-sheet Goldman-formatted Excel workbook. Secrets in `.env` (ANTHROPIC_API_KEY, NEWS_API_KEY, FMP_API_KEY) — never committed. User is a finance student; explain financial concepts when introducing new analysis features, skip coding basics.
 
