@@ -44,7 +44,12 @@ else:
     WATCHLIST   = PROJECT_ROOT / "automation" / "watchlist.json"
 
 app = Flask(__name__)
-CORS(app)
+# Restrict cross-origin API access to the production domain and local dev only.
+CORS(app, origins=[
+    "https://web-chi-ten-48.vercel.app",
+    "http://localhost:5001",
+    "http://127.0.0.1:5001",
+])
 
 jobs: dict[str, dict] = {}
 
@@ -412,6 +417,8 @@ def _analysis_thread(job_id: str, ticker: str, flags: list[str], audience: str):
 
 @app.route("/api/analyze", methods=["POST"])
 def api_analyze():
+    if not is_admin():
+        return jsonify({"error": "Unauthorized"}), 403
     body     = request.get_json() or {}
     ticker   = body.get("ticker", "").upper().strip()
     flags    = body.get("flags", ["--full"])
@@ -458,6 +465,8 @@ def _lbo_thread(job_id: str, ticker: str, entry_multiple, hold_years: int, debt_
 
 @app.route("/api/lbo", methods=["POST"])
 def api_lbo():
+    if not is_admin():
+        return jsonify({"error": "Unauthorized"}), 403
     body          = request.get_json() or {}
     ticker        = body.get("ticker", "").upper().strip()
     entry_multiple = body.get("entry_multiple")
@@ -503,6 +512,8 @@ def _ma_thread(job_id: str, acquirer: str, target: str, premium_pct: float, cash
 
 @app.route("/api/ma", methods=["POST"])
 def api_ma():
+    if not is_admin():
+        return jsonify({"error": "Unauthorized"}), 403
     body       = request.get_json() or {}
     acquirer   = body.get("acquirer", "").upper().strip()
     target     = body.get("target", "").upper().strip()
@@ -579,6 +590,8 @@ def api_education():
     /api/progress call needed) so the thread and SSE reader share the
     same lambda instance — avoiding cross-instance state loss on Vercel.
     """
+    if not is_admin():
+        return jsonify({"error": "Unauthorized"}), 403
     body     = request.get_json() or {}
     ticker   = body.get("ticker", "").upper().strip()
     audience = body.get("audience", "student")
